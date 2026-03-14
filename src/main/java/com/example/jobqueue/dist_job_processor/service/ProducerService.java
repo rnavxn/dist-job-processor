@@ -15,10 +15,6 @@ public class ProducerService {
     private final Gson gson = new Gson();
     private static final String QUEUE_NAME = "job_queue";
 
-    public ProducerService(JedisPool jedisPool) {
-        this.jedisPool = jedisPool;
-    }
-
     public void enqueue(Job job) {
         String jsonJob = gson.toJson(job);
 

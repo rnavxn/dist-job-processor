@@ -12,10 +12,6 @@ public class JobController {
 
     private final ProducerService producerService;
 
-    public JobController(ProducerService producerService) {
-        this.producerService = producerService;
-    }
-
     @PostMapping("/enqueue")
     public String createJob(@RequestParam String type, @RequestParam String payload) {
         // Create a new Job object
