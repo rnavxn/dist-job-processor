@@ -33,5 +33,5 @@ build/
 .vscode/
 
 
-### Secrets ###
-secrets.sh
+### Environmental Variables ###
+.env
