@@ -13,4 +13,8 @@ public class Job {
     private String type;        // e.g., "EMAIL_SEND", "IMAGE_RESIZE"
     private String payload;     // The actual data (JSON string or simple text)
     private long createdAt = System.currentTimeMillis();
+
+    public String getId() {
+        return this.id;
+    }
 }
