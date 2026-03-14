@@ -1,4 +1,5 @@
 package com.example.jobqueue.dist_job_processor.service;
+
 import com.example.jobqueue.dist_job_processor.model.Job;
 import com.google.gson.Gson;
 import lombok.RequiredArgsConstructor;
@@ -8,6 +9,9 @@ import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.args.ListDirection;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Service
 @RequiredArgsConstructor
@@ -19,10 +23,11 @@ public class WorkerService {
     private static final String QUEUE_NAME = "job_queue";
     private static final String PROCESSING_QUEUE = "processing_queue"; // New list!
 
+    // Create a Thread Pool with 5 "Workers"
+    private final ExecutorService threadPool = Executors.newFixedThreadPool(5);
 
-    // Run every 1 second.
-    // fixedDelay means: wait 1s AFTER the previous task finishes.
-    @Scheduled(fixedDelay = 1000)
+    // Reduced to Half a second to poll faster!
+    @Scheduled(fixedDelay = 500)
     public void pollAndProcess() {
         try (Jedis jedis = jedisPool.getResource()) {
 
@@ -32,23 +37,29 @@ public class WorkerService {
                     ListDirection.LEFT, ListDirection.RIGHT);
 
             if (jsonJob != null) {
-                Job job = gson.fromJson(jsonJob, Job.class);
-                log.info("Safe-Processing Job: {}", job.getId());
-
-                performWork(job);
-
-                // WORK COMPLETE: Now we can safely remove it from the processing list
-                // LREM removes the specific job we just finished
-                jedis.lrem(PROCESSING_QUEUE, 1, jsonJob);
-                log.info("Successfully finished and cleared Job: {}", job.getId());
+                // Hand the job to the Thread Pool and immediately look for the next job
+                threadPool.submit(() -> {
+                    processTask(jsonJob);
+                });
             }
         } catch (Exception e) {
             log.error("Worker encountered an error: {}", e.getMessage());
         }
     }
 
-    private void performWork(Job job) throws InterruptedException {
-        // We'll simulate a heavy task by sleeping for 2 seconds
-        Thread.sleep(2000);
+    private void processTask(String jsonJob) {
+        Job job = gson.fromJson(jsonJob, Job.class);
+        try {
+            log.info("Thread {} starting Job: {}", Thread.currentThread().getName(), job.getId());
+            Thread.sleep(5000); // Simulate a long 5-second task
+
+            // Cleanup after success
+            try (Jedis jedis = jedisPool.getResource()) {
+                jedis.lrem("processing_queue", 1, jsonJob);
+            }
+            log.info("Finished: {}", job.getId());
+        } catch (Exception e) {
+            log.error("Fatal error during task execution");
+        }
     }
 }
