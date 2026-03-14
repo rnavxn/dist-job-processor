@@ -7,6 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.args.ListDirection;
 
 @Service
 @RequiredArgsConstructor
@@ -16,26 +17,30 @@ public class WorkerService {
     private final JedisPool jedisPool;
     private final Gson gson = new Gson();
     private static final String QUEUE_NAME = "job_queue";
+    private static final String PROCESSING_QUEUE = "processing_queue"; // New list!
+
 
     // Run every 1 second.
     // fixedDelay means: wait 1s AFTER the previous task finishes.
     @Scheduled(fixedDelay = 1000)
     public void pollAndProcess() {
         try (Jedis jedis = jedisPool.getResource()) {
-            // LPOP: Get the first job from the list
-            String jsonJob = jedis.lpop(QUEUE_NAME);
+
+            // ATOMIC MOVE: Take from 'job_queue' and put into 'processing_queue'
+            // If the app crashes now, the job is safely in the 'processing_queue'
+            String jsonJob = jedis.lmove(QUEUE_NAME, PROCESSING_QUEUE,
+                    ListDirection.LEFT, ListDirection.RIGHT);
 
             if (jsonJob != null) {
-                // 1. Deserialization
                 Job job = gson.fromJson(jsonJob, Job.class);
+                log.info("Safe-Processing Job: {}", job.getId());
 
-                log.info("Starting Job: {} | Type: {}", job.getId(), job.getType());
-
-                // 2. Simulate the 'Work'
-                // In a real app, this would be sending an email or calling an API
                 performWork(job);
 
-                log.info("Successfully finished Job: {}", job.getId());
+                // WORK COMPLETE: Now we can safely remove it from the processing list
+                // LREM removes the specific job we just finished
+                jedis.lrem(PROCESSING_QUEUE, 1, jsonJob);
+                log.info("Successfully finished and cleared Job: {}", job.getId());
             }
         } catch (Exception e) {
             log.error("Worker encountered an error: {}", e.getMessage());
