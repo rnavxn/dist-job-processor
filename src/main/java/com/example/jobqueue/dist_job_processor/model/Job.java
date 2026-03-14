@@ -1,11 +1,9 @@
 package com.example.jobqueue.dist_job_processor.model;
 
 import lombok.AllArgsConstructor;
-import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.util.UUID;
 
-@Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class Job {
@@ -16,5 +14,21 @@ public class Job {
 
     public String getId() {
         return this.id;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
+    public String getPayload() {
+        return payload;
+    }
+
+    public void setPayload(String payload) {
+        this.payload = payload;
     }
 }
