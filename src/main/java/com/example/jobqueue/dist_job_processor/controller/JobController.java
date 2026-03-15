@@ -14,13 +14,8 @@ public class JobController {
 
     @PostMapping("/enqueue")
     public String createJob(@RequestParam String type, @RequestParam String payload) {
-        // Create a new Job object
-        Job job = new Job();
-        job.setType(type);
-        job.setPayload(payload);
-
         // Push it to Redis
-        producerService.enqueue(job);
+        producerService.enqueue(type, payload);
 
         return "Job " + job.getId() + " enqueued successfully!";
     }
