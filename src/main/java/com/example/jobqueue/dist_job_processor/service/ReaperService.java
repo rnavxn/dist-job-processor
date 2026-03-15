@@ -32,7 +32,7 @@ public class ReaperService {
 
                 // If the job has been "Processing" for more than 5 minutes
                 // Note : Adjust 300000ms to 30000ms for quick testing
-                if (now - job.getCreatedAt() > 300000) {
+                if (now - job.getStartedAt() > 300000) {
                     log.warn("REAPER: Job {} is stuck. Reclaiming...", job.getId());
 
                     // Remove it from processing and put it back in the main queue

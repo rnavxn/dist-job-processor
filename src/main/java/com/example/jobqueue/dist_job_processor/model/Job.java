@@ -13,25 +13,6 @@ public class Job {
     private String type;        // e.g., "EMAIL_SEND", "IMAGE_RESIZE"
     private String payload;     // The actual data (JSON string or simple text)
     private long createdAt = System.currentTimeMillis();
+    private long startedAt;
     private int attempts = 0;   // to track how many times a job has failed
-
-    // public String getId() {
-    //     return this.id;
-    // }
-
-    // public String getType() {
-    //     return type;
-    // }
-
-    // public void setType(String type) {
-    //     this.type = type;
-    // }
-
-    // public String getPayload() {
-    //     return payload;
-    // }
-
-    // public void setPayload(String payload) {
-    //     this.payload = payload;
-    // }
 }

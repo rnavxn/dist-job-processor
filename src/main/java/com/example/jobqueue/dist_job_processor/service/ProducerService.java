@@ -15,7 +15,12 @@ public class ProducerService {
     private final Gson gson = new Gson();
     private static final String QUEUE_NAME = "job_queue";
 
-    public void enqueue(Job job) {
+    public void enqueue(String type, String payload) {
+        // Create a new Job object
+        Job job = new Job();
+        job.setType(type);
+        job.setPayload(payload);
+
         String jsonJob = gson.toJson(job);
 
         try (Jedis jedis = jedisPool.getResource()) {

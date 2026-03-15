@@ -52,6 +52,8 @@ public class WorkerService {
         try {
             log.info("Thread {} starting Job: {}", Thread.currentThread().getName(), job.getId());
             log.info("Processing: {}", job.getId());
+            job.setStartedAt(System.currentTimeMillis());
+
             Thread.sleep(3000); // Simulate a 3-second task attempt
 
             // --- A RANDOM FAILURE ---
