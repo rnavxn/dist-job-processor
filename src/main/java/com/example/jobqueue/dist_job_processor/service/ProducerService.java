@@ -15,7 +15,7 @@ public class ProducerService {
     private final Gson gson = new Gson();
     private static final String QUEUE_NAME = "job_queue";
 
-    public void enqueue(String type, String payload) {
+    public String enqueue(String type, String payload) {
         // Create a new Job object
         Job job = new Job();
         job.setType(type);
@@ -31,5 +31,7 @@ public class ProducerService {
             // Handle connection or serialization errors here
             System.err.println("Failed to enqueue job: " + e.getMessage());
         }
+
+        return "Job " + job.getId() + " enqueued successfully!";
     }
 }
