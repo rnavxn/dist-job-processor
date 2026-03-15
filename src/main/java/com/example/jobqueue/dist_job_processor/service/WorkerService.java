@@ -51,15 +51,39 @@ public class WorkerService {
         Job job = gson.fromJson(jsonJob, Job.class);
         try {
             log.info("Thread {} starting Job: {}", Thread.currentThread().getName(), job.getId());
-            Thread.sleep(5000); // Simulate a long 5-second task
+            log.info("Processing: {}", job.getId());
+            Thread.sleep(3000); // Simulate a 3-second task attempt
 
-            // Cleanup after success
+            // --- A RANDOM FAILURE ---
+            // Let's say 20% of jobs fail randomly to test our logic
+            if (Math.random() < 0.2) throw new RuntimeException("Simulated Network Error");
+
+            Thread.sleep(2000); // Completion of task took 5 sec in total whereas failed task fails after 3 sec
+
+            // SUCCESS : Remove from processing
             try (Jedis jedis = jedisPool.getResource()) {
                 jedis.lrem("processing_queue", 1, jsonJob);
             }
             log.info("Finished: {}", job.getId());
         } catch (Exception e) {
-            log.error("Fatal error during task execution");
+            handleFailure(job, jsonJob);
+        }
+    }
+
+    private void handleFailure(Job job, String jsonJob) {
+        try (Jedis jedis = jedisPool.getResource()) {
+            // Remove from processing queue regardless
+            jedis.lrem("processing_queue", 1, jsonJob);
+
+            job.setAttempts(job.getAttempts() + 1);
+
+            if (job.getAttempts() >= 3) {
+                log.error("Job {} failed 3 times. Moving to DLQ!", job.getId());
+                jedis.rpush("dead_letter_queue", gson.toJson(job));
+            } else {
+                log.warn("Job {} failed. Attempt {}. Retrying...", job.getId(), job.getAttempts());
+                jedis.rpush("job_queue", gson.toJson(job)); // Put back to try again
+            }
         }
     }
 }
