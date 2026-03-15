@@ -1,12 +1,15 @@
 package com.example.jobqueue.dist_job_processor.service;
 
+import com.example.jobqueue.dist_job_processor.model.Job;
+import com.google.gson.Gson;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.args.ListDirection;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -14,20 +17,28 @@ import redis.clients.jedis.args.ListDirection;
 public class ReaperService {
 
     private final JedisPool jedisPool;
+    private final Gson gson = new Gson();
 
-    // Run every 30 seconds to look for stuck jobs
-    @Scheduled(fixedRate = 30000)
+    // Run every minute to look for stuck jobs
+    @Scheduled(fixedRate = 60000)
     public void reclaimStuckJobs() {
         try (Jedis jedis = jedisPool.getResource()) {
-            // To check this idealogy
-            // For now this project, we'll simply move EVERYTHING from
-            // processing back to the main queue if the worker died.
+            // Get all jobs currently being processed
+            List<String> processingJobs = jedis.lrange("processing_queue", 0, -1);
+            long now = System.currentTimeMillis();
 
-            // LMOVE from processing_queue -> job_queue
-            String reclaimedJob;
-            while ((reclaimedJob = jedis.lmove("processing_queue", "job_queue",
-                    ListDirection.LEFT, ListDirection.RIGHT)) != null) {
-                log.warn("REAPER: Reclaimed a stuck job: {}", reclaimedJob);
+            for (String jsonJob : processingJobs) {
+                Job job = gson.fromJson(jsonJob, Job.class);
+
+                // If the job has been "Processing" for more than 5 minutes
+                // Note : Adjust 300000ms to 30000ms for quick testing
+                if (now - job.getCreatedAt() > 300000) {
+                    log.warn("REAPER: Job {} is stuck. Reclaiming...", job.getId());
+
+                    // Remove it from processing and put it back in the main queue
+                    jedis.lrem("processing_queue", 1, jsonJob);
+                    jedis.rpush("job_queue", jsonJob);
+                }
             }
         }
     }
