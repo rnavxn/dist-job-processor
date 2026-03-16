@@ -9,10 +9,18 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Job {
-    private String id = UUID.randomUUID().toString();
-    private String type;        // e.g., "EMAIL_SEND", "IMAGE_RESIZE"
-    private String payload;     // The actual data (JSON string or simple text)
-    private long createdAt = System.currentTimeMillis();
+    private String id;
+    private String type;
+    private String payload;
+    private long createdAt;
     private Long startedAt;
-    private int attempts = 0;   // to track how many times a job has failed
+    private int attempts = 0;
+
+    public Job(String type, String payload) {
+        this.id = UUID.randomUUID().toString();
+        this.type = type;
+        this.payload = payload;
+        this.createdAt = System.currentTimeMillis();
+        this.attempts = 0;
+    }
 }
