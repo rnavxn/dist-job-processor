@@ -5,15 +5,11 @@ import com.google.gson.Gson;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.args.ListDirection;
 
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -24,16 +20,6 @@ public class WorkerService {
     private final Gson gson = new Gson();
     private static final String QUEUE_NAME = "job_queue";
     private static final String PROCESSING_QUEUE = "processing_queue"; // New list!
-
-    // Create a Thread Pool with N "Workers"
-    private final ThreadPoolExecutor threadPool =
-            new ThreadPoolExecutor(
-                    2,                 // core threads
-                    2,                 // max threads
-                    0L,
-                    TimeUnit.MILLISECONDS,
-                    new ArrayBlockingQueue<>(2) // bounded queue
-            );
 
     @PostConstruct
     public void startWorkers() {
@@ -73,35 +59,6 @@ public class WorkerService {
             }
         }
     }
-
-    // Reduced to Half a second to poll faster!
-//    @Scheduled(fixedDelay = 500)
-//    public void pollAndProcess() {
-//        try (Jedis jedis = jedisPool.getResource()) {
-//            // Check for available threads
-//            if (threadPool.getActiveCount() + threadPool.getQueue().size() >= threadPool.getMaximumPoolSize()) {
-//                log.debug("Thread pool full. Skipping dequeue.");
-//                return;
-//            }
-//
-//            // ATOMIC MOVE: Take from 'job_queue' and put into 'processing_queue'
-//            // If the app crashes now, the job is safely in the 'processing_queue'
-//            String jsonJob = jedis.lmove(
-//                    QUEUE_NAME,
-//                    PROCESSING_QUEUE,
-//                    ListDirection.LEFT,
-//                    ListDirection.RIGHT);
-//
-//            if (jsonJob != null) {
-//                // Hand the job to the Thread Pool and immediately look for the next job
-//                threadPool.submit(() -> {
-//                    processTask(jsonJob);
-//                });
-//            }
-//        } catch (Exception e) {
-//            log.error("Worker encountered an error: {}", e.getMessage());
-//        }
-//    }
 
     private void processTask(String jsonJob) {
         Job job = gson.fromJson(jsonJob, Job.class);
