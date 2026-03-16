@@ -1,6 +1,7 @@
 package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.model.Job;
+import com.example.jobqueue.dist_job_processor.model.JobType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
@@ -16,7 +17,7 @@ public class ProducerService {
     private final JedisPool jedisPool;
     private static final String JOB_QUEUE = "job_queue";
 
-    public String enqueue(String type, String payload) {
+    public String enqueue(JobType type, String payload) {
 
         // Create job object with generated ID and timestamps
         Job job = new Job(type, payload);
@@ -29,7 +30,7 @@ public class ProducerService {
             // Store job fields as Redis hash for easy updates
             Map<String, String> jobData = new HashMap<>();
             jobData.put("id", job.getId());
-            jobData.put("type", job.getType());
+            jobData.put("type", job.getType().name());
             jobData.put("payload", job.getPayload());
             jobData.put("createdAt", String.valueOf(job.getCreatedAt()));
             jobData.put("attempts", String.valueOf(job.getAttempts()));

@@ -1,6 +1,7 @@
 package com.example.jobqueue.dist_job_processor.controller;
 
 import com.example.jobqueue.dist_job_processor.model.Job;
+import com.example.jobqueue.dist_job_processor.model.JobType;
 import com.example.jobqueue.dist_job_processor.service.ProducerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -13,7 +14,7 @@ public class JobController {
     private final ProducerService producerService;
 
     @PostMapping("/enqueue")
-    public String createJob(@RequestParam String type, @RequestParam String payload) {
+    public String createJob(@RequestParam JobType type, @RequestParam String payload) {
         // Push it to Redis
         return producerService.enqueue(type, payload);
     }

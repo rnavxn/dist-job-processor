@@ -10,13 +10,13 @@ import java.util.UUID;
 @AllArgsConstructor
 public class Job {
     private String id;
-    private String type;
+    private JobType type;
     private String payload;
     private long createdAt;
     private Long startedAt;
     private int attempts = 0;
 
-    public Job(String type, String payload) {
+    public Job(JobType type, String payload) {
         this.id = UUID.randomUUID().toString();
         this.type = type;
         this.payload = payload;
