@@ -10,8 +10,9 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.args.ListDirection;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -23,18 +24,34 @@ public class WorkerService {
     private static final String QUEUE_NAME = "job_queue";
     private static final String PROCESSING_QUEUE = "processing_queue"; // New list!
 
-    // Create a Thread Pool with 5 "Workers"
-    private final ExecutorService threadPool = Executors.newFixedThreadPool(2);
+    // Create a Thread Pool with N "Workers"
+    private final ThreadPoolExecutor threadPool =
+            new ThreadPoolExecutor(
+                    2,                 // core threads
+                    2,                 // max threads
+                    0L,
+                    TimeUnit.MILLISECONDS,
+                    new ArrayBlockingQueue<>(2) // bounded queue
+            );
+
 
     // Reduced to Half a second to poll faster!
     @Scheduled(fixedDelay = 500)
     public void pollAndProcess() {
         try (Jedis jedis = jedisPool.getResource()) {
+            // Check for available threads
+            if (threadPool.getActiveCount() + threadPool.getQueue().size() >= threadPool.getMaximumPoolSize()) {
+                log.debug("Thread pool full. Skipping dequeue.");
+                return;
+            }
 
             // ATOMIC MOVE: Take from 'job_queue' and put into 'processing_queue'
             // If the app crashes now, the job is safely in the 'processing_queue'
-            String jsonJob = jedis.lmove(QUEUE_NAME, PROCESSING_QUEUE,
-                    ListDirection.LEFT, ListDirection.RIGHT);
+            String jsonJob = jedis.lmove(
+                    QUEUE_NAME,
+                    PROCESSING_QUEUE,
+                    ListDirection.LEFT,
+                    ListDirection.RIGHT);
 
             if (jsonJob != null) {
                 // Hand the job to the Thread Pool and immediately look for the next job
@@ -54,13 +71,13 @@ public class WorkerService {
             log.info("Processing: {}", job.getId());
             job.setStartedAt(System.currentTimeMillis());
 
-            Thread.sleep(10000); // Simulate a 3-second task attempt
+            Thread.sleep(3000); // Simulate a 3-second task attempt
 
             // --- A RANDOM FAILURE ---
             // Let's say 20% of jobs fail randomly to test our logic
             if (Math.random() < 0.2) throw new RuntimeException("Simulated Network Error");
 
-           Thread.sleep(20000); // Completion of task took 5 sec in total whereas failed task fails after 3 sec
+           Thread.sleep(7000);
 
             // SUCCESS : Remove from processing
             try (Jedis jedis = jedisPool.getResource()) {
