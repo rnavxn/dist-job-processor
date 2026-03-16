@@ -24,7 +24,7 @@ public class WorkerService {
     private static final String PROCESSING_QUEUE = "processing_queue"; // New list!
 
     // Create a Thread Pool with 5 "Workers"
-    private final ExecutorService threadPool = Executors.newFixedThreadPool(5);
+    private final ExecutorService threadPool = Executors.newFixedThreadPool(2);
 
     // Reduced to Half a second to poll faster!
     @Scheduled(fixedDelay = 500)
@@ -54,13 +54,13 @@ public class WorkerService {
             log.info("Processing: {}", job.getId());
             job.setStartedAt(System.currentTimeMillis());
 
-            Thread.sleep(3000); // Simulate a 3-second task attempt
+            Thread.sleep(10000); // Simulate a 3-second task attempt
 
             // --- A RANDOM FAILURE ---
             // Let's say 20% of jobs fail randomly to test our logic
             if (Math.random() < 0.2) throw new RuntimeException("Simulated Network Error");
 
-            Thread.sleep(2000); // Completion of task took 5 sec in total whereas failed task fails after 3 sec
+           Thread.sleep(20000); // Completion of task took 5 sec in total whereas failed task fails after 3 sec
 
             // SUCCESS : Remove from processing
             try (Jedis jedis = jedisPool.getResource()) {

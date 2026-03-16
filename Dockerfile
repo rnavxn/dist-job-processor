@@ -6,7 +6,7 @@ RUN mvn clean package -DskipTests
 # Stage 2: Run the application
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
-COPY --from build /target/*.jar app.jar
+COPY --from=build /target/*.jar app.jar
 
 # Expose the dashboard port
 EXPOSE 8080
