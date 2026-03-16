@@ -2,6 +2,7 @@ package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.model.Job;
 import com.google.gson.Gson;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -34,35 +35,73 @@ public class WorkerService {
                     new ArrayBlockingQueue<>(2) // bounded queue
             );
 
+    @PostConstruct
+    public void startWorkers() {
 
-    // Reduced to Half a second to poll faster!
-    @Scheduled(fixedDelay = 500)
-    public void pollAndProcess() {
-        try (Jedis jedis = jedisPool.getResource()) {
-            // Check for available threads
-            if (threadPool.getActiveCount() + threadPool.getQueue().size() >= threadPool.getMaximumPoolSize()) {
-                log.debug("Thread pool full. Skipping dequeue.");
-                return;
-            }
+        int workerCount = 2; // same as your previous thread pool size
 
-            // ATOMIC MOVE: Take from 'job_queue' and put into 'processing_queue'
-            // If the app crashes now, the job is safely in the 'processing_queue'
-            String jsonJob = jedis.lmove(
-                    QUEUE_NAME,
-                    PROCESSING_QUEUE,
-                    ListDirection.LEFT,
-                    ListDirection.RIGHT);
+        for (int i = 0; i < workerCount; i++) {
+            Thread worker = new Thread(this::workerLoop);
+            worker.setName("worker-" + i);
+            worker.start();
+        }
 
-            if (jsonJob != null) {
-                // Hand the job to the Thread Pool and immediately look for the next job
-                threadPool.submit(() -> {
+        log.info("Started {} blocking workers", workerCount);
+    }
+
+
+    private void workerLoop() {
+
+        while (true) {
+
+            try (Jedis jedis = jedisPool.getResource()) {
+
+                String jsonJob = jedis.blmove(
+                        QUEUE_NAME,
+                        PROCESSING_QUEUE,
+                        ListDirection.LEFT,
+                        ListDirection.RIGHT,
+                        0   // block forever
+                );
+
+                if (jsonJob != null) {
                     processTask(jsonJob);
-                });
+                }
+
+            } catch (Exception e) {
+                log.error("Worker error: {}", e.getMessage());
             }
-        } catch (Exception e) {
-            log.error("Worker encountered an error: {}", e.getMessage());
         }
     }
+
+    // Reduced to Half a second to poll faster!
+//    @Scheduled(fixedDelay = 500)
+//    public void pollAndProcess() {
+//        try (Jedis jedis = jedisPool.getResource()) {
+//            // Check for available threads
+//            if (threadPool.getActiveCount() + threadPool.getQueue().size() >= threadPool.getMaximumPoolSize()) {
+//                log.debug("Thread pool full. Skipping dequeue.");
+//                return;
+//            }
+//
+//            // ATOMIC MOVE: Take from 'job_queue' and put into 'processing_queue'
+//            // If the app crashes now, the job is safely in the 'processing_queue'
+//            String jsonJob = jedis.lmove(
+//                    QUEUE_NAME,
+//                    PROCESSING_QUEUE,
+//                    ListDirection.LEFT,
+//                    ListDirection.RIGHT);
+//
+//            if (jsonJob != null) {
+//                // Hand the job to the Thread Pool and immediately look for the next job
+//                threadPool.submit(() -> {
+//                    processTask(jsonJob);
+//                });
+//            }
+//        } catch (Exception e) {
+//            log.error("Worker encountered an error: {}", e.getMessage());
+//        }
+//    }
 
     private void processTask(String jsonJob) {
         Job job = gson.fromJson(jsonJob, Job.class);
