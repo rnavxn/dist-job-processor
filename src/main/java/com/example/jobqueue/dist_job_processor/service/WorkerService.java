@@ -122,7 +122,6 @@ public class WorkerService {
         return JOB_KEY_PREFIX + jobId;
     }
 
-
     private void handleFailure(String jobId) {
 
         try (Jedis jedis = jedisPool.getResource()) {
@@ -135,7 +134,7 @@ public class WorkerService {
             if (attempts >= 3) {
                 log.error("Job {} failed 3 times. Moving to DLQ!", jobId);
 
-                jedis.hset(jobKey(jobId), "status", JobStatus.FAILED.name());
+                jedis.hset(jobKey(jobId), "status", JobStatus.DLQ.name());
 
                 jedis.rpush(DEAD_LETTER_QUEUE, jobId);
 
