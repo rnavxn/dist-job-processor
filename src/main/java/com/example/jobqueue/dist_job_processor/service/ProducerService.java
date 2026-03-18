@@ -19,6 +19,7 @@ public class ProducerService {
 
     private static final String JOB_QUEUE = "job_queue";
     private static final String JOB_KEY_PREFIX = "job:";
+    private static final String ALL_JOBS_SET = "jobs:all";
 
     public String enqueue(JobType type, String payload) {
 
@@ -44,6 +45,8 @@ public class ProducerService {
 
             // Push job ID into Redis queue for workers
             jedis.rpush(JOB_QUEUE, job.getId());
+
+            jedis.sadd(ALL_JOBS_SET, job.getId());
 
         } catch (Exception e) {
             System.err.println("Failed to enqueue job: " + e.getMessage());
