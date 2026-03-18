@@ -8,7 +8,10 @@ import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -16,6 +19,8 @@ public class JobService {
 
     private final JedisPool jedisPool;
     private static final String JOB_KEY_PREFIX = "job:";
+    private static final String ALL_JOBS_SET = "jobs:all";
+
 
     public JobResponse getJob(String jobId) {
 
@@ -39,6 +44,33 @@ public class JobService {
                             ? Long.parseLong(data.get("startedAt"))
                             : null
             );
+        }
+    }
+
+    public List<JobResponse> getAllJobs(int limit) {
+
+        try (Jedis jedis = jedisPool.getResource()) {
+
+            Set<String> jobIds = jedis.smembers(ALL_JOBS_SET);
+
+            return jobIds.stream()
+                    .limit(limit)
+                    .map(this::getJob)
+                    .filter(Objects::nonNull)
+                    .toList();
+        }
+    }
+
+    public List<JobResponse> getJobByStatus(JobStatus status) {
+
+        try (Jedis jedis = jedisPool.getResource()) {
+
+            Set<String> jobIds = jedis.smembers(ALL_JOBS_SET);
+
+            return jobIds.stream()
+                    .map(this::getJob)
+                    .filter(job -> job != null && job.getStatus() == status)
+                    .toList();
         }
     }
 }

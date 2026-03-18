@@ -32,7 +32,7 @@ public class JobController {
 
     @GetMapping("/{id}")
     public ResponseEntity<JobResponse> getJob(@PathVariable String id) {
-
+        // Get the job from redis
         JobResponse job = jobService.getJob(id);
 
         if (job == null) {
@@ -43,30 +43,14 @@ public class JobController {
     }
 
     @GetMapping
-    public List<JobResponse> getAllJobs() {
-
-        try (Jedis jedis = jedisPool.getResource()) {
-
-            Set<String> jobIds = jedis.smembers("jobs:all");
-
-            return jobIds.stream()
-                    .map(jobService::getJob)
-                    .filter(Objects::nonNull)
-                    .toList();
-        }
+    public List<JobResponse> getAllJobs(@RequestParam(defaultValue = "10") int limit) {
+        // Get all jobs from redis
+        return jobService.getAllJobs(limit);
     }
 
     @GetMapping("/status/{status}")
     public List<JobResponse> getJobsByStatus(@PathVariable JobStatus status) {
 
-        try (Jedis jedis = jedisPool.getResource()) {
-
-            Set<String> jobIds = jedis.smembers("jobs:all");
-
-            return jobIds.stream()
-                    .map(jobService::getJob)
-                    .filter(job -> job != null && job.getStatus() == status)
-                    .toList();
-        }
+        return jobService.getJobByStatus(status);
     }
 }
