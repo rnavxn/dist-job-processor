@@ -24,6 +24,7 @@ public class WorkerService {
     private static final String JOB_QUEUE = "job_queue";
     private static final String PROCESSING_QUEUE = "processing_queue";
     private static final String DEAD_LETTER_QUEUE = "dead_letter_queue";
+    private static final String RETRY_QUEUE = "retry_queue";
     private static final String JOB_KEY_PREFIX = "job:";
 
 
@@ -139,11 +140,15 @@ public class WorkerService {
                 jedis.rpush(DEAD_LETTER_QUEUE, jobId);
 
             } else {
-                log.warn("Job {} failed. Attempt {}. Retrying...", jobId, attempts);
+
+                long delay = (attempts == 1) ? 10000 : 30000;
+                long retryTime = System.currentTimeMillis() + delay;
+
+                log.warn("Job {} failed. Attempt {}. Will retry in {} seconds.", jobId, attempts, delay / 1000);
 
                 jedis.hset(jobKey(jobId), "status", JobStatus.QUEUED.name());
 
-                jedis.rpush(JOB_QUEUE, jobId);
+                jedis.zadd(RETRY_QUEUE, retryTime, jobId);
             }
         }
     }
