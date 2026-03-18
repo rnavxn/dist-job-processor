@@ -33,20 +33,29 @@ public class RetryService {
 
             // Fetch all jobs whose retry timestamp (score) is <= current time
             // These jobs are ready to be retried
-            List<String> readyJobs = jedis.zrangeByScore(RETRY_QUEUE, 0, now);
+            List<String> readyJobs = jedis.zrangeByScore(RETRY_QUEUE, 0, now, 0, 20);   // limit to 20
 
             for (String jobId : readyJobs) {
 
                 // Remove job from retry queue
-                jedis.zrem(RETRY_QUEUE, jobId);
+                long removed = jedis.zrem(RETRY_QUEUE, jobId);
 
-                // Push job back to main queue so workers can pick it up again
-                jedis.rpush(JOB_QUEUE, jobId);
+                if (removed > 0) {
+                    // This ensures safe retry handling using ZREM return value to avoid duplicate requeue
 
-                // Update job status to reflect it is ready for processing again
-                jedis.hset(JOB_KEY_PREFIX + jobId, "status", JobStatus.QUEUED.name());
+                    // NOTE: ZREM + RPUSH is not atomic.
+                    // If the system crashes between these operations,
+                    // the job may be lost.
+                    // This will be improved later using atomic Lua scripts.
 
-                log.info("Retrying job {}", jobId);
+                    // Push job back to main queue so workers can pick it up again
+                    jedis.rpush(JOB_QUEUE, jobId);
+
+                    // Update job status to reflect it is ready for processing again
+                    jedis.hset(JOB_KEY_PREFIX + jobId, "status", JobStatus.QUEUED.name());
+
+                    log.info("Retrying job {}", jobId);
+                }
             }
         }
     }
