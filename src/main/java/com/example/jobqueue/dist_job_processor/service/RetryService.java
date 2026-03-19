@@ -10,8 +10,6 @@ import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Service
@@ -35,8 +33,6 @@ public class RetryService {
             List<String> readyJobs = jedis.zrangeByScore(RedisKeys.RETRY_QUEUE, 0, now, 0, 20);   // limit to 20
 
             for (String jobId : readyJobs) {
-                // Remove job from retry queue
-                long removed = jedis.zrem(RedisKeys.RETRY_QUEUE, jobId);
 
                 // Atomic move using manual Lua script
                 Object ob = jedis.eval(
@@ -44,6 +40,8 @@ public class RetryService {
                         List.of(RedisKeys.RETRY_QUEUE, RedisKeys.JOB_QUEUE),
                         List.of(jobId)
                 );
+
+                log.info("Scheduler picked job {}", jobId);
 
                 if ((Long) ob == 1L) {
                     // This ensures safe retry handling using ZREM return value to avoid duplicate requeue
@@ -54,19 +52,6 @@ public class RetryService {
                     log.info("Retrying job {}", jobId);
                 }
             }
-        }
-    }
-
-    private String loadScript(String path) {
-        try (InputStream is = getClass().getClassLoader().getResourceAsStream(path)) {
-            if (is == null) {
-                throw new RuntimeException("Lua script not found: " + path);
-            }
-
-            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load Lua script: " + path, e);
         }
     }
 
