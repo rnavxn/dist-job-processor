@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Service
@@ -22,13 +24,15 @@ public class RetryService {
 
     private static final String JOB_KEY_PREFIX = "job:";
 
+    private final String retryScript = loadScript("lua/retry_move.lua");
+
+
     @Scheduled(fixedRate = 5000)
     public void processRetryQueue() {
 
         // This scheduler runs periodically to move jobs whose retry delay has expired
         // from the retry_queue back to the main job_queue for re-processing.
         try (Jedis jedis = jedisPool.getResource()) {
-
             long now = System.currentTimeMillis();
 
             // Fetch all jobs whose retry timestamp (score) is <= current time
@@ -36,20 +40,18 @@ public class RetryService {
             List<String> readyJobs = jedis.zrangeByScore(RETRY_QUEUE, 0, now, 0, 20);   // limit to 20
 
             for (String jobId : readyJobs) {
-
                 // Remove job from retry queue
                 long removed = jedis.zrem(RETRY_QUEUE, jobId);
 
-                if (removed > 0) {
+                // Atomic move using manual Lua script
+                Object ob = jedis.eval(
+                        retryScript,
+                        List.of(RETRY_QUEUE, JOB_QUEUE),
+                        List.of(jobId)
+                );
+
+                if ((Long) ob == 1L) {
                     // This ensures safe retry handling using ZREM return value to avoid duplicate requeue
-
-                    // NOTE: ZREM + RPUSH is not atomic.
-                    // If the system crashes between these operations,
-                    // the job may be lost.
-                    // This will be improved later using atomic Lua scripts.
-
-                    // Push job back to main queue so workers can pick it up again
-                    jedis.rpush(JOB_QUEUE, jobId);
 
                     // Update job status to reflect it is ready for processing again
                     jedis.hset(JOB_KEY_PREFIX + jobId, "status", JobStatus.QUEUED.name());
@@ -59,4 +61,18 @@ public class RetryService {
             }
         }
     }
+
+    private String loadScript(String path) {
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream(path)) {
+            if (is == null) {
+                throw new RuntimeException("Lua script not found: " + path);
+            }
+
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load Lua script: " + path, e);
+        }
+    }
+
 }
