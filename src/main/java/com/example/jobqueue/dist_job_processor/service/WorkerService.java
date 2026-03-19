@@ -11,6 +11,9 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.args.ListDirection;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 
@@ -27,6 +30,9 @@ public class WorkerService {
     private static final String RETRY_QUEUE = "retry_queue";
     private static final String JOB_KEY_PREFIX = "job:";
 
+
+    private final String failedToRetryScript = loadScript("lua/fail_to_retry.lua");
+    private final String failedToDLQScript = loadScript("lua/fail_to_dlq.lua");
 
     @PostConstruct
     public void startWorkers() {
@@ -177,28 +183,55 @@ public class WorkerService {
     private void handleFailure(String jobId) {
 
         try (Jedis jedis = jedisPool.getResource()) {
-            // Remove from processing queue regardless
-            jedis.lrem(PROCESSING_QUEUE, 1, jobId);
-
             // increment attempts counter
             long attempts = jedis.hincrBy(jobKey(jobId), "attempts", 1);
 
             if (attempts >= 3) {
                 // Move job to DLQ
-                log.error("Job {} failed 3 times. Moving to DLQ!", jobId);
-                jedis.hset(jobKey(jobId), "status", JobStatus.DLQ.name());
-                jedis.rpush(DEAD_LETTER_QUEUE, jobId);
+
+                // Atomic move using manual Lua script
+                Object ob = jedis.eval(
+                        failedToDLQScript,
+                        List.of(PROCESSING_QUEUE, DEAD_LETTER_QUEUE),
+                        List.of(jobId)
+                );
+
+                if ((Long) ob == 1L) {
+                    log.error("Job {} failed 3 times. Moving to DLQ!", jobId);
+                    jedis.hset(jobKey(jobId), "status", JobStatus.DLQ.name());
+                }
 
             } else {
 
                 long delay = (attempts == 1) ? 10000 : 30000;
                 long retryTime = System.currentTimeMillis() + delay;
 
-                // Move job to RETRY_QUEUE
-                log.warn("Job {} failed. Attempt {}. Will retry in {} seconds.", jobId, attempts, delay / 1000);
-                jedis.hset(jobKey(jobId), "status", JobStatus.QUEUED.name());
-                jedis.zadd(RETRY_QUEUE, retryTime, jobId);
+                // Atomic move using manual Lua script
+                Object ob = jedis.eval(
+                        failedToRetryScript,
+                        List.of(PROCESSING_QUEUE, RETRY_QUEUE),
+                        List.of(jobId, String.valueOf(retryTime))
+                );
+
+                if ((Long) ob == 1L) {
+                    // Move job to RETRY_QUEUE
+                    log.warn("Job {} failed. Attempt {}. Will retry in {} seconds.", jobId, attempts, delay / 1000);
+                    jedis.hset(jobKey(jobId), "status", JobStatus.QUEUED.name());
+                }
             }
+        }
+    }
+
+    private String loadScript(String path) {
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream(path)) {
+            if (is == null) {
+                throw new RuntimeException("Lua script not found: " + path);
+            }
+
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load Lua script: " + path, e);
         }
     }
 }
