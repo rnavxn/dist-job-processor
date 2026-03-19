@@ -3,6 +3,7 @@ package com.example.jobqueue.dist_job_processor.service;
 import com.example.jobqueue.dist_job_processor.model.Job;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.model.JobType;
+import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
@@ -17,10 +18,6 @@ public class ProducerService {
 
     private final JedisPool jedisPool;
 
-    private static final String JOB_QUEUE = "job_queue";
-    private static final String JOB_KEY_PREFIX = "job:";
-    private static final String ALL_JOBS_SET = "jobs:all";
-
     public String enqueue(JobType type, String payload) {
 
         // Create job object with generated ID and timestamps
@@ -29,7 +26,7 @@ public class ProducerService {
         try (Jedis jedis = jedisPool.getResource()) {
 
             // Redis key used to store job metadata
-            String jobKey = JOB_KEY_PREFIX + job.getId();
+            String jobKey = RedisKeys.jobKey(job.getId());
 
             // Store job fields as Redis hash for easy updates
             Map<String, String> jobData = new HashMap<>();
@@ -44,9 +41,9 @@ public class ProducerService {
             jedis.hset(jobKey, jobData);
 
             // Push job ID into Redis queue for workers
-            jedis.rpush(JOB_QUEUE, job.getId());
+            jedis.rpush(RedisKeys.JOB_QUEUE, job.getId());
 
-            jedis.sadd(ALL_JOBS_SET, job.getId());
+            jedis.sadd(RedisKeys.ALL_JOBS_SET, job.getId());
 
         } catch (Exception e) {
             System.err.println("Failed to enqueue job: " + e.getMessage());

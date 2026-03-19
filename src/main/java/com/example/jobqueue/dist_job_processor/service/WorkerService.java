@@ -3,6 +3,9 @@ package com.example.jobqueue.dist_job_processor.service;
 import com.example.jobqueue.dist_job_processor.model.Job;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.model.JobType;
+import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
+import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
+import com.example.jobqueue.dist_job_processor.redis.RedisUtils;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,15 +27,7 @@ public class WorkerService {
 
     private final JedisPool jedisPool;
 
-    private static final String JOB_QUEUE = "job_queue";
-    private static final String PROCESSING_QUEUE = "processing_queue";
-    private static final String DEAD_LETTER_QUEUE = "dead_letter_queue";
-    private static final String RETRY_QUEUE = "retry_queue";
-    private static final String JOB_KEY_PREFIX = "job:";
-
-
-    private final String failedToRetryScript = loadScript("lua/fail_to_retry.lua");
-    private final String failedToDLQScript = loadScript("lua/fail_to_dlq.lua");
+    private final RedisScriptManager scriptManager;
 
     @PostConstruct
     public void startWorkers() {
@@ -56,8 +51,8 @@ public class WorkerService {
                 // ATOMIC MOVE: Take from JOB_QUEUE and put into PROCESSING_QUEUE
                 // If the server crashes now, the job is safely in the PROCESSING_QUEUE
                 String jobId = jedis.blmove(
-                        JOB_QUEUE,
-                        PROCESSING_QUEUE,
+                        RedisKeys.JOB_QUEUE,
+                        RedisKeys.PROCESSING_QUEUE,
                         ListDirection.LEFT,
                         ListDirection.RIGHT,
                         0
@@ -76,16 +71,16 @@ public class WorkerService {
 
     private void processTask(String jobId) {
 
-        String lockKey = jobKey(jobId) + ":lock";
+        String lockKey = RedisKeys.jobKey(jobId) + ":lock";
         String lockValue = java.util.UUID.randomUUID().toString();
 
         try (Jedis jedis = jedisPool.getResource()){
 
             // -------- Initial status check --------
-            String status = jedis.hget(jobKey(jobId), "status");
+            String status = jedis.hget(RedisKeys.jobKey(jobId), "status");
             if ("COMPLETED".equals(status)) {
                 log.warn("Skipping already completed job {}", jobId);
-                jedis.lrem(PROCESSING_QUEUE, 1, jobId);
+                jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
                 return;
             }
 
@@ -98,25 +93,25 @@ public class WorkerService {
 
             if (lockResult == null) {
                 log.warn("Job {} already locked, skipping", jobId);
-                jedis.lrem(PROCESSING_QUEUE, 1, jobId);
+                jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
                 return;
             }
 
             // -------- Double-check after lock --------
-            status = jedis.hget(jobKey(jobId), "status");
+            status = jedis.hget(RedisKeys.jobKey(jobId), "status");
             if ("COMPLETED".equals(status)) {
-                jedis.lrem(PROCESSING_QUEUE, 1, jobId);
-                safeUnlock(jedis, lockKey, lockValue);
+                jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
+                RedisUtils.safeUnlock(jedis, lockKey, lockValue);
                 return;
             }
 
             // -------- Load job --------
-            Map<String, String> jobData = jedis.hgetAll(jobKey(jobId));
+            Map<String, String> jobData = jedis.hgetAll(RedisKeys.jobKey((jobId)));
 
             if (jobData == null || jobData.isEmpty()) {                 // If Redis loses metadata (rare but possible)
                 log.error("Job metadata missing for {}", jobId);
-                jedis.lrem(PROCESSING_QUEUE, 1, jobId);
-                safeUnlock(jedis, lockKey, lockValue);
+                jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
+                RedisUtils.safeUnlock(jedis, lockKey, lockValue);
                 return;
             }
 
@@ -132,8 +127,8 @@ public class WorkerService {
 
             // ------- Mark Processing -------
             job.setStartedAt(System.currentTimeMillis());
-            jedis.hset(jobKey(jobId), "status", JobStatus.PROCESSING.name());
-            jedis.hset(jobKey(jobId), "startedAt", String.valueOf(job.getStartedAt()));
+            jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.PROCESSING.name());
+            jedis.hset(RedisKeys.jobKey(jobId), "startedAt", String.valueOf(job.getStartedAt()));
 
             // ------- Task Execution -------
             Thread.sleep(3000); // Simulate a 3-second task attempt
@@ -146,37 +141,25 @@ public class WorkerService {
             Thread.sleep(7000);
 
             // Mark COMPLETED
-            jedis.hset(jobKey(jobId), "status", JobStatus.COMPLETED.name());
+            jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.COMPLETED.name());
             log.info("Finished: {}", job.getId());
 
             // ------- Remove from PROCESSING -------
-            jedis.lrem(PROCESSING_QUEUE, 1, jobId);
+            jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
 
 
             // -------- Release lock safely --------
-            safeUnlock(jedis, lockKey, lockValue);
+            RedisUtils.safeUnlock(jedis, lockKey, lockValue);
 
         } catch (Exception e) {
             log.error("Job {} failed: {}", jobId, e.getMessage());
 
             try (Jedis jedis = jedisPool.getResource()) {
-                safeUnlock(jedis, lockKey, lockValue);
+                RedisUtils.safeUnlock(jedis, lockKey, lockValue);
             }
 
             handleFailure(jobId);
         }
-    }
-
-    private void safeUnlock(Jedis jedis, String lockKey, String lockValue) {
-        String currentValue = jedis.get(lockKey);
-
-        if (lockValue.equals(currentValue)) {
-            jedis.del(lockKey);
-        }
-    }
-
-    private String jobKey(String jobId) {
-        return JOB_KEY_PREFIX + jobId;
     }
 
 
@@ -184,21 +167,21 @@ public class WorkerService {
 
         try (Jedis jedis = jedisPool.getResource()) {
             // increment attempts counter
-            long attempts = jedis.hincrBy(jobKey(jobId), "attempts", 1);
+            long attempts = jedis.hincrBy(RedisKeys.jobKey(jobId), "attempts", 1);
 
             if (attempts >= 3) {
                 // Move job to DLQ
 
                 // Atomic move using manual Lua script
                 Object ob = jedis.eval(
-                        failedToDLQScript,
-                        List.of(PROCESSING_QUEUE, DEAD_LETTER_QUEUE),
+                        scriptManager.get("fail_to_dlq"),
+                        List.of(RedisKeys.PROCESSING_QUEUE, RedisKeys.DEAD_LETTER_QUEUE),
                         List.of(jobId)
                 );
 
                 if ((Long) ob == 1L) {
                     log.error("Job {} failed 3 times. Moving to DLQ!", jobId);
-                    jedis.hset(jobKey(jobId), "status", JobStatus.DLQ.name());
+                    jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.DLQ.name());
                 }
 
             } else {
@@ -208,30 +191,18 @@ public class WorkerService {
 
                 // Atomic move using manual Lua script
                 Object ob = jedis.eval(
-                        failedToRetryScript,
-                        List.of(PROCESSING_QUEUE, RETRY_QUEUE),
+                        scriptManager.get("fail_to_retry"),
+                        List.of(RedisKeys.PROCESSING_QUEUE, RedisKeys.RETRY_QUEUE),
                         List.of(jobId, String.valueOf(retryTime))
                 );
 
                 if ((Long) ob == 1L) {
                     // Move job to RETRY_QUEUE
                     log.warn("Job {} failed. Attempt {}. Will retry in {} seconds.", jobId, attempts, delay / 1000);
-                    jedis.hset(jobKey(jobId), "status", JobStatus.QUEUED.name());
+                    jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.QUEUED.name());
                 }
             }
         }
     }
 
-    private String loadScript(String path) {
-        try (InputStream is = getClass().getClassLoader().getResourceAsStream(path)) {
-            if (is == null) {
-                throw new RuntimeException("Lua script not found: " + path);
-            }
-
-            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load Lua script: " + path, e);
-        }
-    }
 }

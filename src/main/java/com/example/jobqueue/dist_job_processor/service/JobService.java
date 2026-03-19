@@ -3,6 +3,7 @@ package com.example.jobqueue.dist_job_processor.service;
 import com.example.jobqueue.dist_job_processor.DTO.JobResponse;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.model.JobType;
+import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
@@ -18,16 +19,13 @@ import java.util.Set;
 public class JobService {
 
     private final JedisPool jedisPool;
-    private static final String JOB_KEY_PREFIX = "job:";
-    private static final String ALL_JOBS_SET = "jobs:all";
-
 
     public JobResponse getJob(String jobId) {
 
         try (Jedis jedis = jedisPool.getResource()) {
 
             Map<String, String> data =
-                    jedis.hgetAll(JOB_KEY_PREFIX + jobId);
+                    jedis.hgetAll(RedisKeys.jobKey(jobId));
 
             if (data == null || data.isEmpty()) {
                 return null;
@@ -51,7 +49,7 @@ public class JobService {
 
         try (Jedis jedis = jedisPool.getResource()) {
 
-            Set<String> jobIds = jedis.smembers(ALL_JOBS_SET);
+            Set<String> jobIds = jedis.smembers(RedisKeys.ALL_JOBS_SET);
 
             return jobIds.stream()
                     .limit(limit)
@@ -65,7 +63,7 @@ public class JobService {
 
         try (Jedis jedis = jedisPool.getResource()) {
 
-            Set<String> jobIds = jedis.smembers(ALL_JOBS_SET);
+            Set<String> jobIds = jedis.smembers(RedisKeys.ALL_JOBS_SET);
 
             return jobIds.stream()
                     .map(this::getJob)

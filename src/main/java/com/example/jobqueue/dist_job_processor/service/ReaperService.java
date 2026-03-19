@@ -1,6 +1,7 @@
 package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
+import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -18,22 +19,18 @@ public class ReaperService {
 
     private final JedisPool jedisPool;
 
-    private static final String PROCESSING_QUEUE = "processing_queue";
-    private static final String JOB_QUEUE = "job_queue";
-    private static final String JOB_KEY_PREFIX = "job:";
-
     // Run every 2 minutes (120,000ms) to check for zombies
     @Scheduled(fixedRate = 60000)
     public void reclaimStuckJobs() {
 
         try (Jedis jedis = jedisPool.getResource()) {
 
-            List<String> processingJobs = jedis.lrange(PROCESSING_QUEUE, 0, -1);
+            List<String> processingJobs = jedis.lrange(RedisKeys.PROCESSING_QUEUE, 0, -1);
             long now = System.currentTimeMillis();
 
             for (String jobId : processingJobs) {
                 try {
-                    Map<String, String> jobData = jedis.hgetAll(JOB_KEY_PREFIX + jobId);
+                    Map<String, String> jobData = jedis.hgetAll(RedisKeys.jobKey(jobId));
 
                     if (jobData == null || jobData.isEmpty()) {
                         log.warn("REAPER: Metadata missing for job {}", jobId);
@@ -67,16 +64,16 @@ public class ReaperService {
                         // ATOMIC RECLAIM:
                         // We ONLY push back if we successfully remove the EXACT string.
                         // This prevents the 3,000 ghost jobs loop from previous bug.
-                        long removed = jedis.lrem(PROCESSING_QUEUE, 1, jobId);
+                        long removed = jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
 
                         if (removed > 0) {
                             jedis.hset(
-                                    JOB_KEY_PREFIX + jobId,
+                                    RedisKeys.jobKey(jobId),
                                     "status",
                                     JobStatus.QUEUED.name()
                             );
 
-                            jedis.rpush(JOB_QUEUE, jobId);
+                            jedis.rpush(RedisKeys.JOB_QUEUE, jobId);
 
                             log.info(
                                     "REAPER: Successfully returned job {} to waiting queue",

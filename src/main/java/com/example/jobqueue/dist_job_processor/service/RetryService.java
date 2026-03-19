@@ -1,6 +1,8 @@
 package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
+import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
+import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -18,14 +20,7 @@ import java.util.List;
 public class RetryService {
 
     private final JedisPool jedisPool;
-
-    private static final String JOB_QUEUE = "job_queue";
-    private static final String RETRY_QUEUE = "retry_queue";
-
-    private static final String JOB_KEY_PREFIX = "job:";
-
-    private final String retryScript = loadScript("lua/retry_move.lua");
-
+    private final RedisScriptManager scriptManager;
 
     @Scheduled(fixedRate = 5000)
     public void processRetryQueue() {
@@ -37,16 +32,16 @@ public class RetryService {
 
             // Fetch all jobs whose retry timestamp (score) is <= current time
             // These jobs are ready to be retried
-            List<String> readyJobs = jedis.zrangeByScore(RETRY_QUEUE, 0, now, 0, 20);   // limit to 20
+            List<String> readyJobs = jedis.zrangeByScore(RedisKeys.RETRY_QUEUE, 0, now, 0, 20);   // limit to 20
 
             for (String jobId : readyJobs) {
                 // Remove job from retry queue
-                long removed = jedis.zrem(RETRY_QUEUE, jobId);
+                long removed = jedis.zrem(RedisKeys.RETRY_QUEUE, jobId);
 
                 // Atomic move using manual Lua script
                 Object ob = jedis.eval(
-                        retryScript,
-                        List.of(RETRY_QUEUE, JOB_QUEUE),
+                        scriptManager.get("retry_move"),
+                        List.of(RedisKeys.RETRY_QUEUE, RedisKeys.JOB_QUEUE),
                         List.of(jobId)
                 );
 
@@ -54,7 +49,7 @@ public class RetryService {
                     // This ensures safe retry handling using ZREM return value to avoid duplicate requeue
 
                     // Update job status to reflect it is ready for processing again
-                    jedis.hset(JOB_KEY_PREFIX + jobId, "status", JobStatus.QUEUED.name());
+                    jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.QUEUED.name());
 
                     log.info("Retrying job {}", jobId);
                 }
