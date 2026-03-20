@@ -4,6 +4,7 @@ import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
@@ -12,6 +13,7 @@ import redis.clients.jedis.JedisPool;
 import java.util.List;
 import java.util.Map;
 
+@Profile("worker")
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -20,7 +22,7 @@ public class ReaperService {
     private final JedisPool jedisPool;
 
     // Run every 2 minutes (120,000ms) to check for zombies
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 120000)
     public void reclaimStuckJobs() {
 
         try (Jedis jedis = jedisPool.getResource()) {

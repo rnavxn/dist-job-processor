@@ -5,6 +5,8 @@ import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.model.JobType;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
@@ -12,8 +14,10 @@ import redis.clients.jedis.JedisPool;
 import java.util.HashMap;
 import java.util.Map;
 
+@Profile("producer")
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ProducerService {
 
     private final JedisPool jedisPool;
@@ -24,7 +28,6 @@ public class ProducerService {
         Job job = new Job(type, payload);
 
         try (Jedis jedis = jedisPool.getResource()) {
-
             // Redis key used to store job metadata
             String jobKey = RedisKeys.jobKey(job.getId());
 
@@ -44,6 +47,8 @@ public class ProducerService {
             jedis.rpush(RedisKeys.JOB_QUEUE, job.getId());
 
             jedis.sadd(RedisKeys.ALL_JOBS_SET, job.getId());
+
+            log.info("Job " + job.getId() + " enqueued successfully");
 
         } catch (Exception e) {
             System.err.println("Failed to enqueue job: " + e.getMessage());

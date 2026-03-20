@@ -6,15 +6,13 @@ import com.example.jobqueue.dist_job_processor.model.JobType;
 import com.example.jobqueue.dist_job_processor.service.JobService;
 import com.example.jobqueue.dist_job_processor.service.ProducerService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
 
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
 
+@Profile("producer")
 @RestController
 @RequestMapping("/api/jobs")
 @RequiredArgsConstructor
@@ -22,7 +20,6 @@ public class JobController {
 
     private final ProducerService producerService;
     private final JobService jobService;
-    private final JedisPool jedisPool;
 
     @PostMapping("/enqueue")
     public String createJob(@RequestParam JobType type, @RequestParam String payload) {
