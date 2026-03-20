@@ -9,17 +9,17 @@ import com.example.jobqueue.dist_job_processor.redis.RedisUtils;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.args.ListDirection;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
 
+@Profile("worker")
 @Service
 @RequiredArgsConstructor
 @Slf4j // This gives us a 'log' object instead of using System.out
@@ -32,7 +32,7 @@ public class WorkerService {
     @PostConstruct
     public void startWorkers() {
 
-        int workerCount = 2; // same as your previous thread pool size
+        int workerCount = 2;
 
         for (int i = 0; i < workerCount; i++) {
             Thread worker = new Thread(this::workerLoop);
@@ -185,7 +185,7 @@ public class WorkerService {
                 }
 
             } else {
-
+                // Move job to RETRY_QUEUE
                 long delay = (attempts == 1) ? 10000 : 30000;
                 long retryTime = System.currentTimeMillis() + delay;
 
@@ -197,7 +197,6 @@ public class WorkerService {
                 );
 
                 if ((Long) ob == 1L) {
-                    // Move job to RETRY_QUEUE
                     log.warn("Job {} failed. Attempt {}. Will retry in {} seconds.", jobId, attempts, delay / 1000);
                     jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.QUEUED.name());
                 }
