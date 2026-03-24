@@ -1,85 +1,120 @@
 services:
-  # PostgreSQL Database
+  # ============================================
+  # PostgreSQL Database Service
+  # ============================================
   postgres:
-    image: postgres:16-alpine
-    container_name: job-db
+    image: postgres:16-alpine                    # Lightweight PostgreSQL 16 on Alpine Linux
+    container_name: job-db                       # Fixed container name for easy reference
     ports:
-      - "5432:5432"
+      - "5433:5432"                              # Map host port 5433 to container port 5432 (avoids conflict with local Postgres)
     environment:
-      - POSTGRES_DB:${POSTGRES_DB}
-      - POSTGRES_USER:${POSTGRES_USER}
-      - POSTGRES_PASSWORD:${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}               # Database name from .env file
+      - POSTGRES_USER=${POSTGRES_USER}           # Database user from .env file
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}   # Database password from .env file
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - jobqueue-network
+      - postgres_data:/var/lib/postgresql/data   # Persist data even when container stops
     healthcheck:
+      # Verify database is ready to accept connections before starting dependent services
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      interval: 5s                               # Check every 5 seconds
+      timeout: 5s                                # Timeout after 5 seconds
+      retries: 5                                 # Fail after 5 failed attempts
+    networks:
+      - jobqueue-network                         # Custom network for service discovery
 
+  # ============================================
+  # Producer Service - Handles API requests and job creation
+  # ============================================
   producer:
-    build: .
+    build: .                                      # Build from Dockerfile in current directory
     ports:
-      - "8080:8080"
+      - "8080:8080"                               # Expose REST API on host port 8080
     depends_on:
       postgres:
-        condition: service_healthy
+        condition: service_healthy                # Wait for PostgreSQL to be healthy before starting
     environment:
-      - SPRING_PROFILES_ACTIVE=producer
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=${POSTGRES_DB}
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      # Spring Boot Configuration
+      - SPRING_PROFILES_ACTIVE=producer           # Activate producer profile (enables REST endpoints)
+
+      # Redis Configuration (for distributed queue)
+      - REDIS_HOST=${REDIS_HOST}                  # Redis host from .env (Upstash or local)
+      - REDIS_PORT=${REDIS_PORT}                  # Redis port from .env
+      - REDIS_PASSWORD=${REDIS_PASSWORD}          # Redis password from .env
+
+      # PostgreSQL Configuration (overrides .env for Docker)
+      - POSTGRES_HOST=postgres                    # Use service name for internal DNS resolution
+      - POSTGRES_PORT=5432                        # Internal PostgreSQL port
+      - POSTGRES_DB=${POSTGRES_DB}                # Database name from .env
+      - POSTGRES_USER=${POSTGRES_USER}            # Database user from .env
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    # Database password from .env
     networks:
       - jobqueue-network
 
+  # ============================================
+  # Worker Service - Processes jobs from Redis queue
+  # ============================================
   worker-1:
-    build: .
+    build: .                                      # Same image as producer (different profile)
     depends_on:
       postgres:
-        condition: service_healthy
+        condition: service_healthy                # Wait for database before processing jobs
     environment:
-      - SPRING_PROFILES_ACTIVE=worker
-      - SPRING_WEB_APPLICATION_TYPE=NONE
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=${POSTGRES_DB}
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      # Spring Boot Configuration
+      - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile (disables web server)
+      - SPRING_WEB_APPLICATION_TYPE=NONE          # Explicitly disable web server for worker
+
+      # Redis Configuration (for consuming jobs)
+      - REDIS_HOST=${REDIS_HOST}                  # Redis host from .env
+      - REDIS_PORT=${REDIS_PORT}                  # Redis port from .env
+      - REDIS_PASSWORD=${REDIS_PASSWORD}          # Redis password from .env
+
+      # PostgreSQL Configuration (for storing results)
+      - POSTGRES_HOST=postgres                    # Use service name for internal DNS
+      - POSTGRES_PORT=5432                        # Internal PostgreSQL port
+      - POSTGRES_DB=${POSTGRES_DB}                # Database name from .env
+      - POSTGRES_USER=${POSTGRES_USER}            # Database user from .env
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    # Database password from .env
     networks:
       - jobqueue-network
 
+  # ============================================
+  # Worker Service - Second instance for horizontal scaling
+  # ============================================
   worker-2:
-    build: .
+    build: .                                      # Same image as producer (different profile)
     depends_on:
       postgres:
-        condition: service_healthy
+        condition: service_healthy                # Wait for database before processing jobs
     environment:
-      - SPRING_PROFILES_ACTIVE=worker
-      - SPRING_WEB_APPLICATION_TYPE=NONE
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=${POSTGRES_DB}
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      # Spring Boot Configuration
+      - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile (disables web server)
+      - SPRING_WEB_APPLICATION_TYPE=NONE          # Explicitly disable web server for worker
+
+      # Redis Configuration (for consuming jobs)
+      - REDIS_HOST=${REDIS_HOST}                  # Redis host from .env
+      - REDIS_PORT=${REDIS_PORT}                  # Redis port from .env
+      - REDIS_PASSWORD=${REDIS_PASSWORD}          # Redis password from .env
+
+      # PostgreSQL Configuration (for storing results)
+      - POSTGRES_HOST=postgres                    # Use service name for internal DNS
+      - POSTGRES_PORT=5432                        # Internal PostgreSQL port
+      - POSTGRES_DB=${POSTGRES_DB}                # Database name from .env
+      - POSTGRES_USER=${POSTGRES_USER}            # Database user from .env
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    # Database password from .env
     networks:
       - jobqueue-network
 
+# ============================================
+# Persistent Storage
+# ============================================
 volumes:
-  postgres_data:
+  postgres_data:                                  # Named volume for PostgreSQL persistence
+  # Data persists even after containers are removed
 
+# ============================================
+# Networking
+# ============================================
 networks:
   jobqueue-network:
-    driver: bridge
+    driver: bridge                                # Bridge network for inter-container communication
+    # Services can reach each other using service names (e.g., 'postgres', 'producer')
