@@ -41,4 +41,10 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
                                       @Param("status") JobStatus status,
                                       @Param("error") String error);
 
+    @Modifying
+    @Transactional
+    @Query("UPDATE JobEntity j SET j.lastError = :error WHERE j.id = :id")
+    void updateLastError(@Param("id") String id,
+                         @Param("error") String error);
+
 }

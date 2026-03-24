@@ -125,4 +125,21 @@ public class JobPersistenceService {
     public Optional<JobEntity> findJob(String jobId) {
         return jobRepository.findById(jobId);
     }
+
+    /**
+     * Record that a retry is happening for this job.
+     * We don't change status (should already be QUEUED), but we track the retry.
+     *
+     * Used when: RetryService moves job from retry_queue to job_queue.
+     */
+    @Transactional
+    public void recordRetry(String jobId) {
+        // Option 1: Add a retry_count column to track retries separately
+        // Option 2: Update last_error with retry timestamp
+        // Option 3: Add to a retry_history table
+
+        // For now, let's just log and update last_error
+        jobRepository.updateLastError(jobId, "Retried at: " + System.currentTimeMillis());
+        log.debug("Recorded retry for job {}", jobId);
+    }
 }
