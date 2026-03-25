@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -160,5 +161,21 @@ public class JobPersistenceService {
         jobRepository.recoverStuckJob(jobId, JobStatus.QUEUED,
                 "Recovered by Reaper at " + System.currentTimeMillis() + ". Reason: " + reason);
         log.debug("Recovered stuck job {} in PostgreSQL", jobId);
+    }
+
+    /**
+     * Find all jobs with limit, ordered by creation date descending (most recent first)
+     * Used by: JobService.getAllJobs() for API
+     */
+    public List<JobEntity> findAllJobs(int limit) {
+        return jobRepository.findTopNByOrderByCreatedAtDesc(limit);
+    }
+
+    /**
+     * Find all jobs with a specific status
+     * Used by: JobService.getJobsByStatus() for API filtering
+     */
+    public List<JobEntity> findByStatus(JobStatus status) {
+        return jobRepository.findByStatus(status);
     }
 }

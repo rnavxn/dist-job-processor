@@ -86,4 +86,10 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
                          @Param("status") JobStatus status,
                          @Param("error") String error);
 
+    /**
+     * Get N most recent jobs, ordered by creation date descending
+     * Used by: JobService.getAllJobs() for API listing
+     */
+    @Query("SELECT j FROM JobEntity j ORDER BY j.createdAt DESC LIMIT ?1")
+    List<JobEntity> findTopNByOrderByCreatedAtDesc(int limit);
 }
