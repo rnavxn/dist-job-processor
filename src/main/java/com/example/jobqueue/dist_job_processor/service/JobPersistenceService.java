@@ -142,4 +142,23 @@ public class JobPersistenceService {
         jobRepository.updateLastError(jobId, "Retried at: " + System.currentTimeMillis());
         log.debug("Recorded retry for job {}", jobId);
     }
+
+    /**
+     * Handle a stuck job that is being recovered by the Reaper.
+     *
+     * What happened: Job was stuck in PROCESSING state (worker crashed, network issue, etc.)
+     * What we do:
+     *   1. Reset status to QUEUED
+     *   2. Clear started_at (job will restart fresh)
+     *   3. Record the recovery in last_error for debugging
+     *
+     * Note: We DON'T increment attempts here. The attempts count should reflect
+     * actual execution attempts, not recovery attempts.
+     */
+    @Transactional
+    public void recoverStuckJob(String jobId, String reason) {
+        jobRepository.recoverStuckJob(jobId, JobStatus.QUEUED,
+                "Recovered by Reaper at " + System.currentTimeMillis() + ". Reason: " + reason);
+        log.debug("Recovered stuck job {} in PostgreSQL", jobId);
+    }
 }
