@@ -1,6 +1,7 @@
 package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.DTO.JobResponse;
+import com.example.jobqueue.dist_job_processor.entity.JobEntity;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.model.JobType;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
@@ -13,62 +14,56 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class JobService {
 
-    private final JedisPool jedisPool;
+    // CHANGED: Now using PostgreSQL instead of Redis
+    private final JobPersistenceService persistenceService;
 
+    /**
+     * Get single job by ID from PostgreSQL
+     */
     public JobResponse getJob(String jobId) {
-
-        try (Jedis jedis = jedisPool.getResource()) {
-
-            Map<String, String> data =
-                    jedis.hgetAll(RedisKeys.jobKey(jobId));
-
-            if (data == null || data.isEmpty()) {
-                return null;
-            }
-
-            return new JobResponse(
-                    data.get("id"),
-                    JobType.valueOf(data.get("type")),
-                    data.get("payload"),
-                    JobStatus.valueOf(data.get("status")),
-                    Integer.parseInt(data.get("attempts")),
-                    Long.parseLong(data.get("createdAt")),
-                    data.get("startedAt") != null
-                            ? Long.parseLong(data.get("startedAt"))
-                            : null
-            );
-        }
+        return persistenceService.findJob(jobId)
+                .map(this::convertToResponse)
+                .orElse(null);
     }
 
+    /**
+     * Get all jobs (limited) from PostgreSQL, ordered by most recent
+     */
     public List<JobResponse> getAllJobs(int limit) {
-
-        try (Jedis jedis = jedisPool.getResource()) {
-
-            Set<String> jobIds = jedis.smembers(RedisKeys.ALL_JOBS_SET);
-
-            return jobIds.stream()
-                    .limit(limit)
-                    .map(this::getJob)
-                    .filter(Objects::nonNull)
-                    .toList();
-        }
+        return persistenceService.findAllJobs(limit)
+                .stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
     }
 
-    public List<JobResponse> getJobByStatus(JobStatus status) {
+    /**
+     * Get jobs filtered by status from PostgreSQL
+     */
+    public List<JobResponse> getJobsByStatus(JobStatus status) {
+        return persistenceService.findByStatus(status)
+                .stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
 
-        try (Jedis jedis = jedisPool.getResource()) {
-
-            Set<String> jobIds = jedis.smembers(RedisKeys.ALL_JOBS_SET);
-
-            return jobIds.stream()
-                    .map(this::getJob)
-                    .filter(job -> job != null && job.getStatus() == status)
-                    .toList();
-        }
+    /**
+     * Convert JPA Entity to DTO for API response
+     */
+    private JobResponse convertToResponse(JobEntity entity) {
+        return new JobResponse(
+                entity.getId(),
+                entity.getType(),
+                entity.getPayload(),
+                entity.getStatus(),
+                entity.getAttempts(),
+                entity.getCreatedAt(),
+                entity.getStartedAt()
+        );
     }
 }

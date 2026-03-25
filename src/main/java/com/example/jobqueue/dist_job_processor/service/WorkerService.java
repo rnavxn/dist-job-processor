@@ -29,6 +29,8 @@ public class WorkerService {
 
     private final RedisScriptManager scriptManager;
 
+    private final JobPersistenceService persistenceService;
+
     @PostConstruct
     public void startWorkers() {
 
@@ -125,8 +127,14 @@ public class WorkerService {
 
             log.info("Thread {} starting Job: {}", Thread.currentThread().getName(), job.getId());
 
-            // ------- Mark Processing -------
-            job.setStartedAt(System.currentTimeMillis());
+            // ========== Update PostgreSQL to PROCESSING ==========
+            // Why? So database knows this job is being worked on.
+            // If worker crashes now, Reaper will see stuck job and recover it.
+            long startedAt = System.currentTimeMillis();
+            persistenceService.updateStatusToProcessing(jobId, startedAt);
+
+            // ------- Mark Processing in Redis -------
+            job.setStartedAt(startedAt);
             jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.PROCESSING.name());
             jedis.hset(RedisKeys.jobKey(jobId), "startedAt", String.valueOf(job.getStartedAt()));
 
@@ -140,7 +148,11 @@ public class WorkerService {
 
             Thread.sleep(7000);
 
-            // Mark COMPLETED
+            // ========== Mark COMPLETED in PostgreSQL ==========
+            // Success path: job finished without errors
+            persistenceService.markCompleted(jobId);
+
+            // Mark COMPLETED in Redis
             jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.COMPLETED.name());
             log.info("Finished: {}", job.getId());
 
@@ -154,25 +166,31 @@ public class WorkerService {
         } catch (Exception e) {
             log.error("Job {} failed: {}", jobId, e.getMessage());
 
+            // ========== Handle failure in PostgreSQL ==========
+            // We'll move this to handleFailure() for consistency
+            // But we need to release lock first
+
             try (Jedis jedis = jedisPool.getResource()) {
                 RedisUtils.safeUnlock(jedis, lockKey, lockValue);
             }
 
-            handleFailure(jobId);
+            handleFailure(jobId, e.getMessage());
         }
     }
 
 
-    private void handleFailure(String jobId) {
+    private void handleFailure(String jobId, String errorMessage) {
 
         try (Jedis jedis = jedisPool.getResource()) {
-            // increment attempts counter
+            // increment attempts counter in Redis
             long attempts = jedis.hincrBy(RedisKeys.jobKey(jobId), "attempts", 1);
 
             if (attempts >= 3) {
-                // Move job to DLQ
+                // ========== Move to DLQ in PostgreSQL ==========
+                // Job failed 3 times. It's dead. Store in DLQ for manual inspection.
+                persistenceService.moveToDlq(jobId, errorMessage);
 
-                // Atomic move using manual Lua script
+                // Move job to DLQ in Redis
                 Object ob = jedis.eval(
                         scriptManager.get("fail_to_dlq"),
                         List.of(RedisKeys.PROCESSING_QUEUE, RedisKeys.DEAD_LETTER_QUEUE),
@@ -185,11 +203,14 @@ public class WorkerService {
                 }
 
             } else {
-                // Move job to RETRY_QUEUE
+                // ========== Update PostgreSQL for retry ==========
+                // Job failed but has attempts left. Increment attempts and set status back to QUEUED.
+                persistenceService.incrementAttemptsAndMoveToQueued(jobId, errorMessage);
+
+                // Move job to RETRY_QUEUE in Redis
                 long delay = (attempts == 1) ? 10000 : 30000;
                 long retryTime = System.currentTimeMillis() + delay;
 
-                // Atomic move using manual Lua script
                 Object ob = jedis.eval(
                         scriptManager.get("fail_to_retry"),
                         List.of(RedisKeys.PROCESSING_QUEUE, RedisKeys.RETRY_QUEUE),
@@ -201,7 +222,13 @@ public class WorkerService {
                     jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.QUEUED.name());
                 }
             }
+        } catch (Exception e) {
+            // CRITICAL: If PostgreSQL fails during failure handling, we have a problem.
+            // The job is in Redis but PostgreSQL might be inconsistent.
+            log.error("CRITICAL: Failed to update PostgreSQL for job {}: {}", jobId, e.getMessage());
+            // TODO: Need a recovery mechanism for this scenario
         }
+
     }
 
 }
