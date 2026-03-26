@@ -48,6 +48,6 @@ public class JobController {
     @GetMapping("/status/{status}")
     public List<JobResponse> getJobsByStatus(@PathVariable JobStatus status) {
 
-        return jobService.getJobByStatus(status);
+        return jobService.getJobsByStatus(status);
     }
 }
