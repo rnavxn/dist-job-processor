@@ -1,5 +1,23 @@
 services:
   # ============================================
+  # Redis Service - In-memory data store for job queue
+  # ============================================
+  redis:
+    image: redis:7-alpine                        # Lightweight Redis 7 on Alpine Linux
+    container_name: job-redis                    # Fixed container name for easy reference
+    ports:
+      - "6379:6379"                              # Map host port 6379 to container port 6379
+    command: redis-server --requirepass ${REDIS_PASSWORD}  # Start Redis with password auth
+    networks:
+      - jobqueue-network                         # Custom network for service discovery
+    healthcheck:
+      # Verify Redis is ready to accept connections using authenticated ping
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]  # Authenticate with password before pinging
+      interval: 5s                               # Check every 5 seconds
+      timeout: 3s                                # Timeout after 3 seconds
+      retries: 5                                 # Fail after 5 failed attempts
+
+  # ============================================
   # PostgreSQL Database Service
   # ============================================
   postgres:
@@ -32,6 +50,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy                # Wait for PostgreSQL to be healthy before starting
+      redis:
+        condition: service_healthy
     environment:
       # Spring Boot Configuration
       - SPRING_PROFILES_ACTIVE=producer           # Activate producer profile (enables REST endpoints)
@@ -58,6 +78,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy                # Wait for database before processing jobs
+      redis:
+        condition: service_healthy
     environment:
       # Spring Boot Configuration
       - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile (disables web server)
@@ -85,6 +107,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy                # Wait for database before processing jobs
+      redis:
+        condition: service_healthy
     environment:
       # Spring Boot Configuration
       - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile (disables web server)
