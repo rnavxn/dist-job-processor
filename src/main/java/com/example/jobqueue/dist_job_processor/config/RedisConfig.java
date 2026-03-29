@@ -18,9 +18,17 @@ public class RedisConfig {
     @Value("${redis.password}")
     private String password;
 
+    @Value("${redis.ssl:false}")
+    private boolean useSsl;
+
     @Bean
     public JedisPool jedisPool() {
-        // Upstash requires SSL (true) for secure connections
-        return new JedisPool(new JedisPoolConfig(), host, port, 2000, password, true);
+        JedisPoolConfig poolConfig = new JedisPoolConfig();
+        poolConfig.setMaxTotal(20);
+        poolConfig.setMinIdle(5);
+
+        int timeout = 2000;
+
+        return new JedisPool(poolConfig, host, port, timeout, password, useSsl);
     }
 }
