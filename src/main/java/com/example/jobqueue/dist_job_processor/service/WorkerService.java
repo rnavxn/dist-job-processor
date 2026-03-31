@@ -192,7 +192,7 @@ public class WorkerService {
 
                 // Move job to DLQ in Redis
                 Object ob = jedis.eval(
-                        scriptManager.get("fail_to_dlq"),
+                        scriptManager.get("processing_to_dlq"),
                         List.of(RedisKeys.PROCESSING_QUEUE, RedisKeys.DEAD_LETTER_QUEUE),
                         List.of(jobId)
                 );
@@ -212,7 +212,7 @@ public class WorkerService {
                 long retryTime = System.currentTimeMillis() + delay;
 
                 Object ob = jedis.eval(
-                        scriptManager.get("fail_to_retry"),
+                        scriptManager.get("processing_to_retry"),
                         List.of(RedisKeys.PROCESSING_QUEUE, RedisKeys.RETRY_QUEUE),
                         List.of(jobId, String.valueOf(retryTime))
                 );
