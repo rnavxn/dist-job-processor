@@ -2,6 +2,7 @@ package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
+import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
@@ -21,6 +22,7 @@ public class ReaperService {
 
     private final JedisPool jedisPool;
     private final JobPersistenceService persistenceService;
+    private final RedisScriptManager scriptManager;
 
     // Run every 15 seconds to check for zombies
     @Scheduled(fixedRate = 15000)
@@ -29,9 +31,8 @@ public class ReaperService {
         try (Jedis jedis = jedisPool.getResource()) {
 
             // Get ALL jobs currently in processing queue
-            // NOTE: This scans the whole queue - not scalable for large queues
-            // TODO: Add batching for production
-            List<String> processingJobs = jedis.lrange(RedisKeys.PROCESSING_QUEUE, 0, -1);
+            // IMPROVEMENT: Replace full scan with batched LRANGE (0, 50) for scalability
+            List<String> processingJobs = jedis.lrange(RedisKeys.PROCESSING_QUEUE, 0, 50);
             long now = System.currentTimeMillis();
 
             for (String jobId : processingJobs) {
@@ -64,7 +65,7 @@ public class ReaperService {
                     // Case 2: Job never started, in queue too long
                     else {
                         long waitingTime = now - createdAt;
-                        if (waitingTime> 30000) {      // 30 seconds
+                        if (waitingTime > 30000) {      // 30 seconds
                             isStuck = true;
                             stuckReason = "Never started, waiting for " + (waitingTime / 1000) + " seconds";
                         }
@@ -75,11 +76,19 @@ public class ReaperService {
 
                         // ========== STEP 1: Atomic Redis Reclaim ==========
                         // Remove from processing queue atomically
-                        long removed = jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
+                        Object result = jedis.eval(
+                                scriptManager.get("processing_to_job"),
+                                List.of(RedisKeys.PROCESSING_QUEUE, RedisKeys.JOB_QUEUE),
+                                List.of(jobId)
+                        );
 
-                        if (removed > 0) {
+                        if ((Long) result == 1L) {
 
-                            // ========== STEP 2: Update PostgreSQL ==========
+                            // ========== STEP 2: Update Redis metadata ==========
+                            jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.QUEUED.name());
+                            jedis.hdel(RedisKeys.jobKey(jobId), "startedAt");
+
+                            // ========== STEP 3: Update PostgreSQL ==========
                             // The job is being recovered. Database needs to know:
                             // 1. Status back to QUEUED (so it can be picked up again)
                             // 2. We need to record that a recovery happened
@@ -88,19 +97,10 @@ public class ReaperService {
                                 persistenceService.recoverStuckJob(jobId, stuckReason);
                                 log.info("REAPER: Updated PostgreSQL for recovered job {}", jobId);
                             } catch (Exception e) {
-                                // CRITICAL: PostgreSQL update failed
-                                // The job is back in Redis queue, but database still shows PROCESSING
+                                // NOTE: If PostgreSQL update fails, reconciliation service will correct state later
                                 log.error("CRITICAL: Failed to update PostgreSQL for recovered job {}: {}",
                                         jobId, e.getMessage());
-                                // TODO: Add to reconciliation queue
                             }
-
-                            // ========== STEP 3: Update Redis Status ==========
-                            jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.QUEUED.name());
-                            jedis.hdel(RedisKeys.jobKey(jobId), "startedAt");  // Clear started time
-
-                            // ========== STEP 4: Push back to main queue ==========
-                            jedis.rpush(RedisKeys.JOB_QUEUE, jobId);
 
                             log.info("REAPER: Successfully returned job {} to waiting queue", jobId);
                         }

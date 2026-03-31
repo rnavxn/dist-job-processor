@@ -92,4 +92,11 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
      */
     @Query("SELECT j FROM JobEntity j ORDER BY j.createdAt DESC LIMIT ?1")
     List<JobEntity> findTopNByOrderByCreatedAtDesc(int limit);
+
+    /**
+     * Find all jobs with status QUEUED within given batchSize
+     * Used when : Job needs reconciliation
+     */
+    @Query(value = "SELECT * FROM jobs WHERE status = 'QUEUED' ORDER BY created_at LIMIT :limit", nativeQuery = true)
+    List<JobEntity> findQueuedJobs(@Param("limit") int limit);
 }

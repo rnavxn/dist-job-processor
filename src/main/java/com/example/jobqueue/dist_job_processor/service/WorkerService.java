@@ -177,10 +177,6 @@ public class WorkerService {
         } catch (Exception e) {
             log.error("Job {} failed: {}", jobId, e.getMessage());
 
-            // ========== Handle failure in PostgreSQL ==========
-            // We'll move this to handleFailure() for consistency
-            // But we need to release lock first
-
             try (Jedis jedis = jedisPool.getResource()) {
                 RedisUtils.safeUnlock(jedis, lockKey, lockValue);
             }
@@ -222,7 +218,6 @@ public class WorkerService {
                 long baseDelay = 5000; // 5 sec
                 long delay = (long) (baseDelay * Math.pow(2, attempts - 1));
 
-                // Optional cap (VERY important)
                 long maxDelay = 30000; // 30 sec max
                 delay = Math.min(delay, maxDelay);
                 long retryTime = System.currentTimeMillis() + delay;
@@ -239,12 +234,9 @@ public class WorkerService {
                 }
             }
         } catch (Exception e) {
-            // CRITICAL: If PostgreSQL fails during failure handling, we have a problem.
-            // The job is in Redis but PostgreSQL might be inconsistent.
+            // NOTE: If PostgreSQL update fails, reconciliation service will fix inconsistency
             log.error("CRITICAL: Failed to update PostgreSQL for job {}: {}", jobId, e.getMessage());
-            // TODO: Need a recovery mechanism for this scenario
         }
-
     }
 
 }

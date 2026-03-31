@@ -178,4 +178,12 @@ public class JobPersistenceService {
     public List<JobEntity> findByStatus(JobStatus status) {
         return jobRepository.findByStatus(status);
     }
+
+    /**
+     * Find all jobs with status QUEUED within given batchSize
+     * Used when : Job needs reconciliation
+    */
+    public List<JobEntity> findQueuedJobs(int batchSize) {
+        return jobRepository.findQueuedJobs(batchSize);
+    }
 }
