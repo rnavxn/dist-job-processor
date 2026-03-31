@@ -18,6 +18,7 @@ public class RedisScriptManager {
         scripts.put("retry_to_job", load("lua/retry_to_job.lua"));
         scripts.put("processing_to_retry", load("lua/processing_to_retry.lua"));
         scripts.put("processing_to_dlq", load("lua/processing_to_dlq.lua"));
+        scripts.put("processing_to_job", load("lua/processing_to_job.lua"));
     }
 
     public String get(String name) {

@@ -66,9 +66,7 @@ public class ProducerService {
             log.info("Job " + job.getId() + " enqueued successfully");
 
         } catch (Exception e) {
-            // CRITICAL: If Redis fails, PostgreSQL already has the job
-            // But we need to handle this - the job is in DB but not in queue
-            // We'll handle this with a recovery mechanism later
+            // NOTE: If Redis fails, PostgreSQL already has the job. Reconciliation service will add job later
             log.error("Failed to enqueue job to Redis after DB save: {}", e.getMessage());
 
             throw new RuntimeException("Redis unavailable", e);

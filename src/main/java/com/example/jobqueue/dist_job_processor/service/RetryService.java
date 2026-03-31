@@ -53,9 +53,8 @@ public class RetryService {
                         List.of(jobId)
                 );
 
-                log.info("Scheduler picked job {}", jobId);
-
                 if ((Long) ob == 1L) {
+                    log.info("Scheduler picked job {}", jobId);
 
                     // ========== STEP 2: Update PostgreSQL ==========
                     // The job is being retried. Database needs to know:
@@ -67,27 +66,16 @@ public class RetryService {
                     // It should be QUEUED already from WorkerService.handleFailure()
                     // So why update?
                     // Because we need to log the retry attempt in database.
-                    // Let's add a field to track retry count separately.
 
-                    // For now, let's just ensure status is QUEUED
-                    // But we should add a 'retry_count' column later
                     try {
-                        // Option 1: Just ensure status is QUEUED
-                        // This is safe because handleFailure already set it to QUEUED
-                        // But if something went wrong, this fixes it
-
-                        // Option 2: Add a new method to record retry event
+                        // Record retry event in PostgreSQL
                         persistenceService.recordRetry(jobId);
 
                         log.info("Recorded retry for job {} in PostgreSQL", jobId);
 
                     } catch (Exception e) {
-                        // CRITICAL: PostgreSQL update failed
-                        // The job is already in Redis queue, but database might be inconsistent
-                        log.error("CRITICAL: Failed to record retry in PostgreSQL for job {}: {}",
-                                jobId, e.getMessage());
+                        log.error("CRITICAL: Failed to record retry in PostgreSQL for job {}: {}", jobId, e.getMessage());
                         // We don't rollback Redis move because job is already in queue
-                        // This will be caught by reconciliation job later
                     }
 
                     // ========== STEP 3: Update Redis Status ==========
