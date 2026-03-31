@@ -15,9 +15,9 @@ public class RedisScriptManager {
 
     @PostConstruct
     public void loadScripts() {
-        scripts.put("retry_move", load("lua/retry_move.lua"));
-        scripts.put("fail_to_retry", load("lua/fail_to_retry.lua"));
-        scripts.put("fail_to_dlq", load("lua/fail_to_dlq.lua"));
+        scripts.put("retry_to_job", load("lua/retry_to_job.lua"));
+        scripts.put("processing_to_retry", load("lua/processing_to_retry.lua"));
+        scripts.put("processing_to_dlq", load("lua/processing_to_dlq.lua"));
     }
 
     public String get(String name) {

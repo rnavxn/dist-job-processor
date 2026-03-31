@@ -48,7 +48,7 @@ public class RetryService {
                 // Move from RETRY_QUEUE to JOB_QUEUE atomically
                 // This prevents duplicate retries if multiple schedulers run
                 Object ob = jedis.eval(
-                        scriptManager.get("retry_move"),
+                        scriptManager.get("retry_to_job"),
                         List.of(RedisKeys.RETRY_QUEUE, RedisKeys.JOB_QUEUE),
                         List.of(jobId)
                 );
