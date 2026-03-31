@@ -26,9 +26,7 @@ import java.util.Map;
 public class WorkerService {
 
     private final JedisPool jedisPool;
-
     private final RedisScriptManager scriptManager;
-
     private final JobPersistenceService persistenceService;
 
     @PostConstruct
@@ -73,7 +71,7 @@ public class WorkerService {
 
     private void processTask(String jobId) {
 
-        String lockKey = RedisKeys.jobKey(jobId) + ":lock";
+        String lockKey = RedisKeys.lockKey(jobId);
         String lockValue = java.util.UUID.randomUUID().toString();
 
         try (Jedis jedis = jedisPool.getResource()){
@@ -90,12 +88,25 @@ public class WorkerService {
             String lockResult = jedis.set(
                     lockKey,
                     lockValue,
-                    redis.clients.jedis.params.SetParams.setParams().nx().ex(600)
+                    redis.clients.jedis.params.SetParams.setParams().nx().ex(30)        // Expires in 30 sec
             );
 
             if (lockResult == null) {
                 log.warn("Job {} already locked, skipping", jobId);
-                jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
+
+                long delay = 2000 + (long)(Math.random() * 3000); // 2–5 sec jitter
+                long retryTime = System.currentTimeMillis() + delay;
+
+                Object ob = jedis.eval(
+                        scriptManager.get("processing_to_retry"),
+                        List.of(RedisKeys.PROCESSING_QUEUE, RedisKeys.RETRY_QUEUE),
+                        List.of(jobId, String.valueOf(retryTime))
+                );
+
+                if ((Long) ob == 1L) {
+                    log.error("Job {} moved to Retry Queue successfully!", jobId);
+                    jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.QUEUED.name());
+                }
                 return;
             }
 
@@ -139,14 +150,14 @@ public class WorkerService {
             jedis.hset(RedisKeys.jobKey(jobId), "startedAt", String.valueOf(job.getStartedAt()));
 
             // ------- Task Execution -------
-            Thread.sleep(3000); // Simulate a 3-second task attempt
+            Thread.sleep(2000); // Simulate a 2-second task attempt
 
             // ------- A RANDOM FAILURE -------
             // Let's say 20% of jobs fail randomly to test our logic
             if (Math.random() < 0.2)
                 throw new RuntimeException("Simulated Network Error");
 
-            Thread.sleep(7000);
+            Thread.sleep(2000);
 
             // ========== Mark COMPLETED in PostgreSQL ==========
             // Success path: job finished without errors
@@ -185,9 +196,9 @@ public class WorkerService {
             // increment attempts counter in Redis
             long attempts = jedis.hincrBy(RedisKeys.jobKey(jobId), "attempts", 1);
 
-            if (attempts >= 3) {
+            if (attempts >= 4) {
                 // ========== Move to DLQ in PostgreSQL ==========
-                // Job failed 3 times. It's dead. Store in DLQ for manual inspection.
+                // Job failed 4 times. It's dead. Store in DLQ for manual inspection.
                 persistenceService.moveToDlq(jobId, errorMessage);
 
                 // Move job to DLQ in Redis
@@ -198,7 +209,7 @@ public class WorkerService {
                 );
 
                 if ((Long) ob == 1L) {
-                    log.error("Job {} failed 3 times. Moving to DLQ!", jobId);
+                    log.error("Job {} failed 4 times. Moving to DLQ!", jobId);
                     jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.DLQ.name());
                 }
 
@@ -208,7 +219,12 @@ public class WorkerService {
                 persistenceService.incrementAttemptsAndMoveToQueued(jobId, errorMessage);
 
                 // Move job to RETRY_QUEUE in Redis
-                long delay = (attempts == 1) ? 10000 : 30000;
+                long baseDelay = 5000; // 5 sec
+                long delay = (long) (baseDelay * Math.pow(2, attempts - 1));
+
+                // Optional cap (VERY important)
+                long maxDelay = 30000; // 30 sec max
+                delay = Math.min(delay, maxDelay);
                 long retryTime = System.currentTimeMillis() + delay;
 
                 Object ob = jedis.eval(

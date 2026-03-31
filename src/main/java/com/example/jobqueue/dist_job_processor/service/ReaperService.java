@@ -20,11 +20,10 @@ import java.util.Map;
 public class ReaperService {
 
     private final JedisPool jedisPool;
-
     private final JobPersistenceService persistenceService;
 
-    // Run every 2 minutes (120,000ms) to check for zombies
-    @Scheduled(fixedRate = 120000)
+    // Run every 15 seconds to check for zombies
+    @Scheduled(fixedRate = 15000)
     public void reclaimStuckJobs() {
 
         try (Jedis jedis = jedisPool.getResource()) {
@@ -57,7 +56,7 @@ public class ReaperService {
                     // Case 1: Job started but running too long
                     if (startedAt != null) {
                         long runningTime = now - startedAt;
-                        if (runningTime > 300000) {     // 5 minutes
+                        if (runningTime > 60000) {     // 1 minute
                             isStuck = true;
                             stuckReason = "Running for " + (runningTime / 1000) + " seconds";
                         }
@@ -65,7 +64,7 @@ public class ReaperService {
                     // Case 2: Job never started, in queue too long
                     else {
                         long waitingTime = now - createdAt;
-                        if (waitingTime> 120000) {      // 2 minutes
+                        if (waitingTime> 30000) {      // 30 seconds
                             isStuck = true;
                             stuckReason = "Never started, waiting for " + (waitingTime / 1000) + " seconds";
                         }

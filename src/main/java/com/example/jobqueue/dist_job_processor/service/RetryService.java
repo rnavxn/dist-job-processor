@@ -21,8 +21,8 @@ public class RetryService {
 
     private final JedisPool jedisPool;
     private final RedisScriptManager scriptManager;
-
     private final JobPersistenceService persistenceService;
+    private static final int BATCH_SIZE = 50;
 
     @Scheduled(fixedRate = 5000)
     public void processRetryQueue() {
@@ -39,7 +39,7 @@ public class RetryService {
                     0,
                     now,
                     0,
-                    20
+                    BATCH_SIZE
             );
 
             for (String jobId : readyJobs) {
