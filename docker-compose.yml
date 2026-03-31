@@ -7,7 +7,12 @@ services:
     container_name: job-redis                    # Fixed container name for easy reference
     ports:
       - "6379:6379"                              # Map host port 6379 to container port 6379
-    command: redis-server --requirepass ${REDIS_PASSWORD}  # Start Redis with password auth
+    command: >                                   # Start Redis with password auth
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --appendfsync everysec
+
     networks:
       - jobqueue-network                         # Custom network for service discovery
     healthcheck:
@@ -73,6 +78,7 @@ services:
   # ============================================
   # Worker Service - Processes jobs from Redis queue
   # ============================================
+  # Instance 1
   worker-1:
     build: .                                      # Same image as producer (different profile)
     depends_on:
@@ -99,9 +105,7 @@ services:
     networks:
       - jobqueue-network
 
-  # ============================================
-  # Worker Service - Second instance for horizontal scaling
-  # ============================================
+  # Instance 2
   worker-2:
     build: .                                      # Same image as producer (different profile)
     depends_on:
@@ -112,6 +116,35 @@ services:
     environment:
       # Spring Boot Configuration
       - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile (disables web server)
+      - SPRING_WEB_APPLICATION_TYPE=NONE          # Explicitly disable web server for worker
+
+      # Redis Configuration (for consuming jobs)
+      - REDIS_HOST=${REDIS_HOST}                  # Redis host from .env
+      - REDIS_PORT=${REDIS_PORT}                  # Redis port from .env
+      - REDIS_PASSWORD=${REDIS_PASSWORD}          # Redis password from .env
+
+      # PostgreSQL Configuration (for storing results)
+      - POSTGRES_HOST=postgres                    # Use service name for internal DNS
+      - POSTGRES_PORT=5432                        # Internal PostgreSQL port
+      - POSTGRES_DB=${POSTGRES_DB}                # Database name from .env
+      - POSTGRES_USER=${POSTGRES_USER}            # Database user from .env
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    # Database password from .env
+    networks:
+      - jobqueue-network
+
+  # ============================================
+  # Maintenance Service -
+  # ============================================
+  maintenance:
+    build: .                                      # Same image as producer (different profile)
+    depends_on:
+      postgres:
+        condition: service_healthy                # Wait for database before processing jobs
+      redis:
+        condition: service_healthy
+    environment:
+      # Spring Boot Configuration
+      - SPRING_PROFILES_ACTIVE=maintenance             # Activate maintenance profile (disables web server)
       - SPRING_WEB_APPLICATION_TYPE=NONE          # Explicitly disable web server for worker
 
       # Redis Configuration (for consuming jobs)
