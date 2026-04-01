@@ -21,7 +21,6 @@ import java.util.Map;
 public class ProducerService {
 
     private final JedisPool jedisPool;
-
     private final JobPersistenceService persistenceService;
 
     public String enqueue(JobType type, String payload) {
@@ -59,9 +58,6 @@ public class ProducerService {
 
             // Push job ID into Redis queue for workers
             jedis.rpush(RedisKeys.JOB_QUEUE, job.getId());
-
-            // Add to set of all jobs (for dashboard queries)
-            jedis.sadd(RedisKeys.ALL_JOBS_SET, job.getId());
 
             log.info("Job " + job.getId() + " enqueued successfully");
 

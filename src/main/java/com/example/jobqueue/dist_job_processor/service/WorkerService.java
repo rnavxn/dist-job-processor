@@ -1,5 +1,6 @@
 package com.example.jobqueue.dist_job_processor.service;
 
+import com.example.jobqueue.dist_job_processor.config.JobConstants;
 import com.example.jobqueue.dist_job_processor.model.Job;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.model.JobType;
@@ -32,7 +33,7 @@ public class WorkerService {
     @PostConstruct
     public void startWorkers() {
 
-        int workerCount = 2;
+        int workerCount = JobConstants.WORKER_COUNT;
 
         for (int i = 0; i < workerCount; i++) {
             Thread worker = new Thread(this::workerLoop);
@@ -88,13 +89,13 @@ public class WorkerService {
             String lockResult = jedis.set(
                     lockKey,
                     lockValue,
-                    redis.clients.jedis.params.SetParams.setParams().nx().ex(30)        // Expires in 30 sec
+                    redis.clients.jedis.params.SetParams.setParams().nx().ex(JobConstants.LOCK_TTL_SECONDS)
             );
 
             if (lockResult == null) {
                 log.warn("Job {} already locked, skipping", jobId);
 
-                long delay = 2000 + (long)(Math.random() * 3000); // 2–5 sec jitter
+                long delay = JobConstants.LOCK_RETRY_BASE_DELAY_MS + (long)(Math.random() * JobConstants.LOCK_RETRY_MAX_JITTER_MS);
                 long retryTime = System.currentTimeMillis() + delay;
 
                 Object ob = jedis.eval(
@@ -150,14 +151,12 @@ public class WorkerService {
             jedis.hset(RedisKeys.jobKey(jobId), "startedAt", String.valueOf(job.getStartedAt()));
 
             // ------- Task Execution -------
-            Thread.sleep(2000); // Simulate a 2-second task attempt
+            Thread.sleep(JobConstants.SIMULATED_TASK_DURATION_MS);
 
             // ------- A RANDOM FAILURE -------
             // Let's say 20% of jobs fail randomly to test our logic
-            if (Math.random() < 0.2)
+            if (Math.random() < JobConstants.SIMULATED_FAILURE_RATE)
                 throw new RuntimeException("Simulated Network Error");
-
-            Thread.sleep(2000);
 
             // ========== Mark COMPLETED in PostgreSQL ==========
             // Success path: job finished without errors
@@ -170,9 +169,13 @@ public class WorkerService {
             // ------- Remove from PROCESSING -------
             jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
 
-
             // -------- Release lock safely --------
             RedisUtils.safeUnlock(jedis, lockKey, lockValue);
+
+            // Automated job cleanup
+            // Remove completed job metadata from Redis after 1 hour
+            // But keep in PostgreSQL forever
+            jedis.expire(RedisKeys.jobKey(jobId), JobConstants.COMPLETED_JOB_TTL_SECONDS);
 
         } catch (Exception e) {
             log.error("Job {} failed: {}", jobId, e.getMessage());
@@ -207,6 +210,8 @@ public class WorkerService {
                 if ((Long) ob == 1L) {
                     log.error("Job {} failed 4 times. Moving to DLQ!", jobId);
                     jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.DLQ.name());
+
+                    jedis.expire(RedisKeys.jobKey(jobId), JobConstants.DLQ_JOB_TTL_SECONDS);
                 }
 
             } else {
@@ -215,10 +220,10 @@ public class WorkerService {
                 persistenceService.incrementAttemptsAndMoveToQueued(jobId, errorMessage);
 
                 // Move job to RETRY_QUEUE in Redis
-                long baseDelay = 5000; // 5 sec
+                long baseDelay = JobConstants.RETRY_BASE_DELAY_MS;
                 long delay = (long) (baseDelay * Math.pow(2, attempts - 1));
 
-                long maxDelay = 30000; // 30 sec max
+                long maxDelay = JobConstants.RETRY_MAX_DELAY_MS;
                 delay = Math.min(delay, maxDelay);
                 long retryTime = System.currentTimeMillis() + delay;
 

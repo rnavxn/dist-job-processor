@@ -1,5 +1,6 @@
 package com.example.jobqueue.dist_job_processor.service;
 
+import com.example.jobqueue.dist_job_processor.config.JobConstants;
 import com.example.jobqueue.dist_job_processor.entity.JobEntity;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
@@ -26,21 +27,17 @@ public class ReconciliationService {
     private final JedisPool jedisPool;
     private final JobPersistenceService persistenceService;
 
-    // How many jobs to scan per run (prevents DB overload)
-    private static final int BATCH_SIZE = 50;
-
     /**
-     * Runs every 30 seconds
+     * Runs every x seconds
      *
      * Purpose:
      * - Ensure Redis and PostgreSQL are consistent
      * - Recover jobs that exist in DB but are missing in Redis
      */
-    @Scheduled(fixedRate = 30000)
+    @Scheduled(fixedRate = JobConstants.RECONCILIATION_INTERVAL_MS)
     public void reconcileMissingJobs() {
         // Optional: Add lock if you ever run multiple maintenance containers
-        // But for single container, you can skip lock entirely
-        // I'm adding it here just to show the SAME pattern as worker
+        // But for single container, we can skip lock entirely
 
         String lockKey = "lock:reconciliation";
         String lockValue = UUID.randomUUID().toString();
@@ -50,7 +47,7 @@ public class ReconciliationService {
             String lockResult = jedis.set(
                     lockKey,
                     lockValue,
-                    SetParams.setParams().nx().ex(30)
+                    SetParams.setParams().nx().ex(JobConstants.LOCK_TTL_SECONDS)
             );
 
             if (lockResult == null) {
@@ -70,55 +67,44 @@ public class ReconciliationService {
     }
 
     public void performReconciliation(Jedis jedis) {
+        // ========== STEP 1: Fetch QUEUED jobs from PostgreSQL ==========
+        // These are jobs that SHOULD be in Redis waiting to be processed
+        List<JobEntity> queuedJobs = persistenceService.findQueuedJobs(JobConstants.RECONCILIATION_BATCH_SIZE);
 
-        try (jedis) {
-            // ========== STEP 1: Fetch QUEUED jobs from PostgreSQL ==========
-            // These are jobs that SHOULD be in Redis waiting to be processed
-            List<JobEntity> queuedJobs = persistenceService.findQueuedJobs(BATCH_SIZE);
+        if (queuedJobs.isEmpty()) {
+            return;
+        }
 
-            if (queuedJobs.isEmpty()) {
-                return;
-            }
+        int reenqueuedCount = 0;
+        for (JobEntity job : queuedJobs) {
+            String jobId = job.getId();
 
-            int reenqueuedCount = 0;
-            for (JobEntity job : queuedJobs) {
-                String jobId = job.getId();
+            try {
+                // ========== STEP 2: Check if job exists anywhere in Redis ==========
+                // We must ensure job is not already present in any queue
 
-                try {
-                    // ========== STEP 2: Check if job exists anywhere in Redis ==========
-                    // We must ensure job is not already present in any queue
+                boolean exists =
+                        jedis.lpos(RedisKeys.JOB_QUEUE, jobId) != null ||
+                        jedis.lpos(RedisKeys.PROCESSING_QUEUE, jobId) != null ||
+                        jedis.zscore(RedisKeys.RETRY_QUEUE, jobId) != null ||
+                        jedis.lpos(RedisKeys.DEAD_LETTER_QUEUE, jobId) != null;
 
-                    boolean exists =
-                            jedis.lpos(RedisKeys.JOB_QUEUE, jobId) != null ||
-                            jedis.lpos(RedisKeys.PROCESSING_QUEUE, jobId) != null ||
-                            jedis.zscore(RedisKeys.RETRY_QUEUE, jobId) != null ||
-                            jedis.lpos(RedisKeys.DEAD_LETTER_QUEUE, jobId) != null;
-
-                    // ========== STEP 3: If missing → re-enqueue ==========
-                    if (!exists) {
-                        // Push job back to main queue
-                        jedis.rpush(RedisKeys.JOB_QUEUE, jobId);
-
-                        // Also ensure Redis metadata is consistent
-                        jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.QUEUED.name());
-
-                        log.warn("RECON: Re-enqueued missing job {}", jobId);
-                        reenqueuedCount++;
-                    }
-
-                } catch (Exception e) {
-                    // We don’t fail the whole reconciliation because of one job
-                    log.error("RECON: Failed processing job {}", jobId, e);
+                // ========== STEP 3: If missing → re-enqueue ==========
+                if (!exists) {
+                    // Push to queue
+                    jedis.rpush(RedisKeys.JOB_QUEUE, jobId);
+                    log.warn("RECON: Re-enqueued missing job {}", jobId);
+                    reenqueuedCount++;
                 }
-            }
 
-            if (reenqueuedCount > 0) {
-                log.info("Reconciled {} missing jobs", reenqueuedCount);
+            } catch (Exception e) {
+                // We don’t fail the whole reconciliation because of one job
+                log.error("RECON: Failed processing job {}", jobId, e);
             }
+        }
 
-        } catch (Exception e) {
-            // Critical failure: Redis connection or DB failure
-            log.error("RECON: Failed to run reconciliation cycle", e);
+        if (reenqueuedCount > 0) {
+            log.info("Reconciled {} missing jobs", reenqueuedCount);
         }
     }
 }

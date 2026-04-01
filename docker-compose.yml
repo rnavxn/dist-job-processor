@@ -12,7 +12,8 @@ services:
       --requirepass ${REDIS_PASSWORD}
       --appendonly yes
       --appendfsync everysec
-
+      --maxmemory 256mb
+      --maxmemory-policy volatile-lru
     networks:
       - jobqueue-network                         # Custom network for service discovery
     healthcheck:
