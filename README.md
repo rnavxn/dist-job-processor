@@ -10,9 +10,9 @@
 
 ## Overview
 
-A fault-tolerant distributed job processing system built with Spring Boot, Redis, and PostgreSQL.
+A production-ready distributed job processing system built with Spring Boot, Redis, and PostgreSQL.
 
-This system is designed to reliably process background tasks with support for retries, crash recovery, and dead-letter handling. PostgreSQL acts as the source of truth, while Redis provides high-speed queue operations.
+This system is designed to reliably process background tasks with support for automatic retries, crash recovery, dead-letter handling, and self-healing consistency. PostgreSQL acts as the source of truth, while Redis provides high-speed queue operations with automatic memory management.
 
 ---
 
@@ -20,51 +20,75 @@ This system is designed to reliably process background tasks with support for re
 
 ```mermaid
 flowchart LR
-    A[Producer API] --> B[(PostgreSQL)]
-    B --> C[Redis Queue]
-    C --> D[Worker]
-    D --> B
-    D --> |fail| E[Retry Queue]
-    E --> C
-    D --> |3 fails| F[Dead Letter Queue]
+  A[Producer API] --> B[(PostgreSQL)]
+  B --> C[Redis Queue]
+  C --> D[Worker]
+  D --> B
+  D --> |fail| E[Retry Queue]
+  E --> C
+  D --> |x fails| F[Dead Letter Queue]
 
-    G[Reaper] -.-> |reads| C
-    G --> |reclaims| C
+  G[Reaper] -.-> |maintenance| C
+  G --> |reclaims| C
+
+  H[Reconciliation] -.-> |maintenance| B
+  H --> |restores| C
 ```
+
+---
+
+## Service Separation
+
+| Service     | Profile       | Container           | Purpose                            |
+|-------------|---------------|---------------------|------------------------------------|
+| Producer    | `producer`    | producer            | REST API, job enqueue              |
+| Worker      | `worker`      | worker-1, worker-2  | Job processing, retry scheduling   |
+| Maintenance | `maintenance` | maintenance         | Crash recovery, consistency checks |
 
 ---
 
 ## Redis Data Model
 
-| Key                 | Type | Purpose                                   |
-| ------------------- | ---- |-------------------------------------------|
-| `job_queue`         | List | Jobs waiting for processing               |
-| `processing_queue`  | List | Active jobs (reaper boundary)             |
-| `retry_queue`       | ZSET | Delayed retries (score = retry timestamp) |
-| `dead_letter_queue` | List | Failed after retry limit                  |
-| `job:{id}`          | Hash | Job metadata                              |
+| Key                 | Type  | Purpose                                   |
+|---------------------|-------|-------------------------------------------|
+| `job_queue`         | List  | Jobs waiting for processing               |
+| `processing_queue`  | List  | Active jobs (reaper boundary)             |
+| `retry_queue`       | ZSET  | Delayed retries (score = retry timestamp) |
+| `dead_letter_queue` | List  | Failed after retry limit                  |
+| `job:{id}`          | Hash  | Job metadata                              |
 
 ---
 
 ## Key Features
 
-* **Atomic Job Claiming**\
+### Production Hardening
+- **Self-Healing Consistency**\
+  Reconciliation service runs every 30 seconds to ensure Redis and PostgreSQL are in sync, automatically restoring missing or corrupted job metadata.
+
+- **Atomic Operations**\
+  All critical queue transfers use Lua scripts to prevent race conditions and data loss.
+
+- **Memory Safety**\
+  Completed jobs auto-expire after 1 hour, DLQ jobs after 7 days. Redis memory limits prevent OOM crashes.
+
+- **Fault-Tolerant Processing**\
+  Jobs are persisted in PostgreSQL before entering Redis queue. If Redis crashes, reconciliation restores all jobs.
+
+### Core Features
+- **Atomic Job Claiming**\
   Uses Redis `BLMOVE` to ensure jobs are processed by only one worker.
 
-* **Fault-Tolerant Processing**\
-  Jobs are persisted in PostgreSQL before entering the queue.
+- **Exponential Backoff**\
+  Failed jobs retry with increasing delays (10s → 20s → 40s) to prevent system overload.
 
-* **Retry with Backoff**\
-  Failed jobs are retried with increasing delay using a Redis sorted set.
+- **Dead Letter Queue (DLQ)**\
+  Jobs exceeding retry limits (3 attempts) are moved to DLQ for manual inspection.
 
-* **Dead Letter Queue (DLQ)**\
-  Jobs exceeding retry limits are moved to DLQ for inspection.
+- **Crash Recovery (Reaper)**\
+  Detects and reclaims jobs stuck in processing due to worker crashes (15s interval).
 
-* **Crash Recovery (Reaper)**\
-  Detects and reclaims jobs stuck in processing due to worker crashes.
-
-* **Separation of Concerns**\
-  Producer and Worker run as separate services using Spring profiles.
+- **Lock Conflict Handling**\
+  When multiple workers compete for the same job, losers are moved to retry queue with jitter (2-5s) instead of dropping.
 
 ---
 
@@ -72,12 +96,15 @@ flowchart LR
 
 ```mermaid
 graph LR
-A[QUEUED] --> B[PROCESSING]
-B --> C[COMPLETED]
-B -->|failure| D{attempts < 3?}
-D -->|yes| E[RETRY_QUEUE]
-E -->|delay| A
-D -->|no| F[DLQ]
+  A[QUEUED] --> B[PROCESSING]
+  B --> C[COMPLETED]
+  B -->|failure| D{attempts < 4?}
+  D -->|yes| E[RETRY_QUEUE]
+  E -->|10s/20s/40s| A
+  D -->|no| F[DLQ]
+
+  G[Reaper] -->|stuck >1min| A
+  H[Reconciliation] -->|missing/corrupted| A
 ```
 
 ---
@@ -85,10 +112,10 @@ D -->|no| F[DLQ]
 ## Tech Stack
 
 * **Backend:** Spring Boot
-* **Database:** PostgreSQL
-* **Queue Layer:** Redis (Jedis)
-* **Frontend:** Thymeleaf (Dashboard)
+* **Database:** PostgreSQL (source of truth)
+* **Queue Layer:** Redis 7 with Jedis (fast operations)
 * **Containerization:** Docker & Docker Compose
+* **Build Tool:** Maven
 
 ---
 
@@ -98,13 +125,7 @@ D -->|no| F[DLQ]
 
 * Java 21+
 * Maven
-* Docker
-* Redis (cloud instance)
-
-> [!CAUTION]
-> This project currently uses a cloud Redis instance (Upstash). \
-> Configure Redis host, port, and password in application.properties or environment variables before running.
-
+* Docker & Docker Compose
 
 ### Setup
 
@@ -133,9 +154,6 @@ curl -s -X POST "http://localhost:8080/api/jobs/enqueue?type=EMAIL_SEND&payload=
 
 ## Limitations & Tradeoffs
 
-* **Dual-write inconsistency risk**\
-  PostgreSQL and Redis writes are not atomic, which may lead to rare inconsistencies.
-
 * **No idempotency guarantees**\
   In failure scenarios (e.g., worker crash after execution but before DB update), jobs may be reprocessed.
 
@@ -149,11 +167,11 @@ curl -s -X POST "http://localhost:8080/api/jobs/enqueue?type=EMAIL_SEND&payload=
 
 ## Future Improvements
 
-* Add reconciliation service for Redis/PostgreSQL consistency
-* Introduce idempotency keys for safe reprocessing
-* Implement visibility timeout + heartbeat mechanism
-* Add metrics and monitoring (Prometheus + Grafana)
-* Optimize reaper with batching strategy
+* [x] Add reconciliation service for Redis/PostgreSQL consistency
+* [ ] Introduce idempotency keys for safe reprocessing
+* [ ] Implement visibility timeout + heartbeat mechanism
+* [ ] Add metrics and monitoring (Prometheus + Grafana)
+* [x] Optimize reaper with batching strategy
 
 ---
 
