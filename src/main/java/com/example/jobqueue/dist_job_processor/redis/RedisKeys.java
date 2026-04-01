@@ -8,7 +8,6 @@ public class RedisKeys {
     public static final String DEAD_LETTER_QUEUE = "dead_letter_queue";
 
     public static final String JOB_PREFIX = "job:";
-    public static final String ALL_JOBS_SET = "jobs:all";
 
     public static String jobKey(String jobId) {
         return JOB_PREFIX + jobId;

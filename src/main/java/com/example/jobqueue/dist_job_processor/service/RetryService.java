@@ -1,5 +1,6 @@
 package com.example.jobqueue.dist_job_processor.service;
 
+import com.example.jobqueue.dist_job_processor.config.JobConstants;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
@@ -22,9 +23,8 @@ public class RetryService {
     private final JedisPool jedisPool;
     private final RedisScriptManager scriptManager;
     private final JobPersistenceService persistenceService;
-    private static final int BATCH_SIZE = 50;
 
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(fixedRate = JobConstants.RETRY_SERVICE_INTERVAL_MS)
     public void processRetryQueue() {
 
         // This scheduler runs periodically to move jobs whose retry delay has expired
@@ -39,7 +39,7 @@ public class RetryService {
                     0,
                     now,
                     0,
-                    BATCH_SIZE
+                    JobConstants.RETRY_BATCH_SIZE
             );
 
             for (String jobId : readyJobs) {

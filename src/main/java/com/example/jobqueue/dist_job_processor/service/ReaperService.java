@@ -1,5 +1,6 @@
 package com.example.jobqueue.dist_job_processor.service;
 
+import com.example.jobqueue.dist_job_processor.config.JobConstants;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
@@ -14,7 +15,7 @@ import redis.clients.jedis.JedisPool;
 import java.util.List;
 import java.util.Map;
 
-@Profile("worker")
+@Profile("maintenance")
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -24,15 +25,13 @@ public class ReaperService {
     private final JobPersistenceService persistenceService;
     private final RedisScriptManager scriptManager;
 
-    // Run every 15 seconds to check for zombies
-    @Scheduled(fixedRate = 15000)
+    @Scheduled(fixedRate = JobConstants.REAPER_INTERVAL_MS)
     public void reclaimStuckJobs() {
 
         try (Jedis jedis = jedisPool.getResource()) {
 
-            // Get ALL jobs currently in processing queue
-            // IMPROVEMENT: Replace full scan with batched LRANGE (0, 50) for scalability
-            List<String> processingJobs = jedis.lrange(RedisKeys.PROCESSING_QUEUE, 0, 50);
+            // Replace full scan with batched LRANGE (0, BATCH_SIZE) for scalability
+            List<String> processingJobs = jedis.lrange(RedisKeys.PROCESSING_QUEUE, 0, JobConstants.REAPER_BATCH_SIZE);
             long now = System.currentTimeMillis();
 
             for (String jobId : processingJobs) {
@@ -57,7 +56,7 @@ public class ReaperService {
                     // Case 1: Job started but running too long
                     if (startedAt != null) {
                         long runningTime = now - startedAt;
-                        if (runningTime > 60000) {     // 1 minute
+                        if (runningTime > JobConstants.STUCK_JOB_TIMEOUT_MS) {
                             isStuck = true;
                             stuckReason = "Running for " + (runningTime / 1000) + " seconds";
                         }
@@ -65,7 +64,7 @@ public class ReaperService {
                     // Case 2: Job never started, in queue too long
                     else {
                         long waitingTime = now - createdAt;
-                        if (waitingTime > 30000) {      // 30 seconds
+                        if (waitingTime > JobConstants.QUEUE_STUCK_TIMEOUT_MS) {
                             isStuck = true;
                             stuckReason = "Never started, waiting for " + (waitingTime / 1000) + " seconds";
                         }
