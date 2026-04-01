@@ -8,6 +8,7 @@ import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
 import com.example.jobqueue.dist_job_processor.redis.RedisUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -15,7 +16,9 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.params.SetParams;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Profile("maintenance")
@@ -76,6 +79,8 @@ public class ReconciliationService {
         }
 
         int reenqueuedCount = 0;
+        int corruptedCount = 0;
+
         for (JobEntity job : queuedJobs) {
             String jobId = job.getId();
 
@@ -83,18 +88,37 @@ public class ReconciliationService {
                 // ========== STEP 2: Check if job exists anywhere in Redis ==========
                 // We must ensure job is not already present in any queue
 
-                boolean exists =
+                boolean existsInQueue =
                         jedis.lpos(RedisKeys.JOB_QUEUE, jobId) != null ||
                         jedis.lpos(RedisKeys.PROCESSING_QUEUE, jobId) != null ||
                         jedis.zscore(RedisKeys.RETRY_QUEUE, jobId) != null ||
                         jedis.lpos(RedisKeys.DEAD_LETTER_QUEUE, jobId) != null;
 
+                // Check if Redis metadata exists and has required fields
+                Map<String, String> metadata = jedis.hgetAll(RedisKeys.jobKey(jobId));
+                boolean metadataValid = metadata != null &&
+                        !metadata.isEmpty() &&
+                        metadata.containsKey("id") &&
+                        metadata.containsKey("type") &&
+                        metadata.containsKey("payload");
+
                 // ========== STEP 3: If missing → re-enqueue ==========
-                if (!exists) {
-                    // Push to queue
-                    jedis.rpush(RedisKeys.JOB_QUEUE, jobId);
-                    log.warn("RECON: Re-enqueued missing job {}", jobId);
-                    reenqueuedCount++;
+                // Fix if missing from queue OR metadata is corrupted
+                if (!existsInQueue || !metadataValid) {
+                    // Recreate metadata from PostgreSQL if missing or corrupted
+                    if (!metadataValid) {
+                        Map<String, String> freshMetadata = getFreshMetadata(job);
+                        jedis.hset(RedisKeys.jobKey(jobId), freshMetadata);
+                        log.warn("RECON: Recreated corrupted metadata for job {}", jobId);
+                        corruptedCount++;
+                    }
+
+                    // Push to queue if missing
+                    if (!existsInQueue) {
+                        jedis.rpush(RedisKeys.JOB_QUEUE, jobId);
+                        log.warn("RECON: Re-enqueued missing job {}", jobId);
+                        reenqueuedCount++;
+                    }
                 }
 
             } catch (Exception e) {
@@ -103,8 +127,19 @@ public class ReconciliationService {
             }
         }
 
-        if (reenqueuedCount > 0) {
-            log.info("Reconciled {} missing jobs", reenqueuedCount);
+        if (reenqueuedCount > 0 || corruptedCount > 0) {
+            log.info("Reconciled {} missing jobs, fixed {} corrupted jobs", reenqueuedCount, corruptedCount);
         }
+    }
+
+    private static @NonNull Map<String, String> getFreshMetadata(JobEntity job) {
+        Map<String, String> freshMetadata = new HashMap<>();
+        freshMetadata.put("id", job.getId());
+        freshMetadata.put("type", job.getType().name());
+        freshMetadata.put("payload", job.getPayload());
+        freshMetadata.put("createdAt", String.valueOf(job.getCreatedAt()));
+        freshMetadata.put("attempts", String.valueOf(job.getAttempts()));
+        freshMetadata.put("status", JobStatus.QUEUED.name());
+        return freshMetadata;
     }
 }
