@@ -89,8 +89,7 @@ services:
         condition: service_healthy
     environment:
       # Spring Boot Configuration
-      - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile (disables web server)
-      - SPRING_WEB_APPLICATION_TYPE=NONE          # Explicitly disable web server for worker
+      - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile
 
       # Redis Configuration (for consuming jobs)
       - REDIS_HOST=${REDIS_HOST}                  # Redis host from .env
@@ -116,8 +115,7 @@ services:
         condition: service_healthy
     environment:
       # Spring Boot Configuration
-      - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile (disables web server)
-      - SPRING_WEB_APPLICATION_TYPE=NONE          # Explicitly disable web server for worker
+      - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile
 
       # Redis Configuration (for consuming jobs)
       - REDIS_HOST=${REDIS_HOST}                  # Redis host from .env
@@ -145,8 +143,7 @@ services:
         condition: service_healthy
     environment:
       # Spring Boot Configuration
-      - SPRING_PROFILES_ACTIVE=maintenance             # Activate maintenance profile (disables web server)
-      - SPRING_WEB_APPLICATION_TYPE=NONE          # Explicitly disable web server for worker
+      - SPRING_PROFILES_ACTIVE=maintenance             # Activate maintenance profile
 
       # Redis Configuration (for consuming jobs)
       - REDIS_HOST=${REDIS_HOST}                  # Redis host from .env
@@ -162,11 +159,50 @@ services:
     networks:
       - jobqueue-network
 
+  # ============================================
+  # Prometheus & Grafana
+  # ============================================
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - jobqueue-network
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+      - --web.enable-lifecycle
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin  # change in production
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    networks:
+      - jobqueue-network
+    depends_on:
+      - prometheus
+
 # ============================================
 # Persistent Storage
 # ============================================
 volumes:
   postgres_data:                                  # Named volume for PostgreSQL persistence
+  prometheus_data:
+  grafana_data:
   # Data persists even after containers are removed
 
 # ============================================

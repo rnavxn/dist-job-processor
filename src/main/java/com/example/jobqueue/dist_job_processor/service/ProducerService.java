@@ -1,5 +1,6 @@
 package com.example.jobqueue.dist_job_processor.service;
 
+import com.example.jobqueue.dist_job_processor.metrics.JobMetrics;
 import com.example.jobqueue.dist_job_processor.model.Job;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.model.JobType;
@@ -22,6 +23,7 @@ public class ProducerService {
 
     private final JedisPool jedisPool;
     private final JobPersistenceService persistenceService;
+    private final JobMetrics jobMetrics;
 
     public String enqueue(JobType type, String payload) {
 
@@ -60,6 +62,9 @@ public class ProducerService {
             jedis.rpush(RedisKeys.JOB_QUEUE, job.getId());
 
             log.info("Job " + job.getId() + " enqueued successfully");
+
+            // Update monitor
+            jobMetrics.getJobsEnqueued().increment();
 
         } catch (Exception e) {
             // NOTE: If Redis fails, PostgreSQL already has the job. Reconciliation service will add job later

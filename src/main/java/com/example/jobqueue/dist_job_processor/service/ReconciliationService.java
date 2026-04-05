@@ -2,6 +2,7 @@ package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.config.JobConstants;
 import com.example.jobqueue.dist_job_processor.entity.JobEntity;
+import com.example.jobqueue.dist_job_processor.metrics.JobMetrics;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
@@ -29,6 +30,7 @@ public class ReconciliationService {
 
     private final JedisPool jedisPool;
     private final JobPersistenceService persistenceService;
+    private final JobMetrics jobMetrics;
 
     /**
      * Runs every x seconds
@@ -111,6 +113,8 @@ public class ReconciliationService {
                         jedis.hset(RedisKeys.jobKey(jobId), freshMetadata);
                         log.warn("RECON: Recreated corrupted metadata for job {}", jobId);
                         corruptedCount++;
+
+                        jobMetrics.getReconciliationCorrupted().increment();
                     }
 
                     // Push to queue if missing
@@ -118,6 +122,8 @@ public class ReconciliationService {
                         jedis.rpush(RedisKeys.JOB_QUEUE, jobId);
                         log.warn("RECON: Re-enqueued missing job {}", jobId);
                         reenqueuedCount++;
+
+                        jobMetrics.getReconciliationMissing().increment();
                     }
                 }
 
