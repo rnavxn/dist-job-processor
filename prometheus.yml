@@ -12,7 +12,7 @@ scrape_configs:
 
   - job_name: 'workers'
     static_configs:
-      - targets: [ 'worker-1:8080', 'worker-2:8080' ]
+      - targets: ['worker-1:8080', 'worker-2:8080']
     metrics_path: '/actuator/prometheus'
 
   - job_name: 'maintenance'
@@ -22,4 +22,8 @@ scrape_configs:
 
   - job_name: 'redis'
     static_configs:
-      - targets: [ 'redis-exporter:9121' ]
+      - targets: ['redis-exporter:9121']
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
