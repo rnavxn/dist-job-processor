@@ -119,6 +119,25 @@ public class ReconciliationService {
 
                     // Push to queue if missing
                     if (!existsInQueue) {
+                        String redisStatus = metadata.get("status");
+                        String dbStatus = job.getStatus().name();
+
+                        // If Redis says COMPLETED but PostgreSQL says QUEUED/PROCESSING
+                        if ("COMPLETED".equals(redisStatus) && !"COMPLETED".equals(dbStatus)) {
+                            log.warn("RECON: Status mismatch - Job {} is COMPLETED in Redis but {} in DB. Fixing DB.",
+                                    jobId, dbStatus);
+
+                            // Update PostgreSQL to COMPLETED
+                            persistenceService.markCompleted(jobId);
+
+                            // Also clean up any lingering queue entries
+                            jedis.lrem(RedisKeys.JOB_QUEUE, 1, jobId);
+                            jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
+                            jedis.zrem(RedisKeys.RETRY_QUEUE, jobId);
+
+                            continue;  // Skip re-enqueue logic
+                        }
+                        
                         jedis.rpush(RedisKeys.JOB_QUEUE, jobId);
                         log.warn("RECON: Re-enqueued missing job {}", jobId);
                         reenqueuedCount++;
