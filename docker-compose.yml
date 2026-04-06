@@ -24,7 +24,21 @@ services:
       retries: 5                                 # Fail after 5 failed attempts
 
   # ============================================
-  # PostgreSQL Database Service
+  # Redis Exporter - Exposes Redis metrics to Prometheus
+  # ============================================
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter
+    environment:
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "9121:9121"                              # Prometheus scrapes metrics here
+    networks:
+      - jobqueue-network                         # Custom network for service discovery
+
+  # ============================================
+  # PostgreSQL Database Service - Source of truth for jobs
   # ============================================
   postgres:
     image: postgres:16-alpine                    # Lightweight PostgreSQL 16 on Alpine Linux
@@ -47,10 +61,24 @@ services:
       - jobqueue-network                         # Custom network for service discovery
 
   # ============================================
+  # PostgreSQL Exporter - Exposes Postgres metrics to Prometheus
+  # ============================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+    ports:
+      - "9187:9187"                              # Prometheus scrapes metrics here
+    networks:
+      - jobqueue-network                         # Custom network for service discovery
+
+  # ============================================
   # Producer Service - Handles API requests and job creation
   # ============================================
   producer:
     build: .                                      # Build from Dockerfile in current directory
+    container_name: producer
     ports:
       - "8080:8080"                               # Expose REST API on host port 8080
     depends_on:
@@ -82,6 +110,7 @@ services:
   # Instance 1
   worker-1:
     build: .                                      # Same image as producer (different profile)
+    container_name: worker-1
     depends_on:
       postgres:
         condition: service_healthy                # Wait for database before processing jobs
@@ -108,6 +137,7 @@ services:
   # Instance 2
   worker-2:
     build: .                                      # Same image as producer (different profile)
+    container_name: worker-2
     depends_on:
       postgres:
         condition: service_healthy                # Wait for database before processing jobs
@@ -132,10 +162,12 @@ services:
       - jobqueue-network
 
   # ============================================
-  # Maintenance Service -
+  # Maintenance Service - Reaper & Reconciliation
+  # Handles crash recovery and consistency checks
   # ============================================
   maintenance:
     build: .                                      # Same image as producer (different profile)
+    container_name: maintenance
     depends_on:
       postgres:
         condition: service_healthy                # Wait for database before processing jobs
@@ -143,7 +175,7 @@ services:
         condition: service_healthy
     environment:
       # Spring Boot Configuration
-      - SPRING_PROFILES_ACTIVE=maintenance             # Activate maintenance profile
+      - SPRING_PROFILES_ACTIVE=maintenance        # Activate maintenance profile
 
       # Redis Configuration (for consuming jobs)
       - REDIS_HOST=${REDIS_HOST}                  # Redis host from .env
@@ -160,7 +192,8 @@ services:
       - jobqueue-network
 
   # ============================================
-  # Prometheus & Grafana
+  # Prometheus - Metrics collection and storage
+  # Scrapes metrics from all services every 15s
   # ============================================
   prometheus:
     image: prom/prometheus:v2.45.0
@@ -169,28 +202,32 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     ports:
-      - "9090:9090"
+      - "9090:9090"                               # Prometheus UI and API
     networks:
       - jobqueue-network
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.time=30d         # Keep metrics for 30 days
       - --web.console.libraries=/usr/share/prometheus/console_libraries
       - --web.console.templates=/usr/share/prometheus/consoles
       - --web.enable-lifecycle
 
+  # ============================================
+  # Grafana - Dashboard visualization
+  # Access at http://localhost:3000 (admin/admin)
+  # ============================================
   grafana:
     image: grafana/grafana:10.1.0
     container_name: grafana
     ports:
-      - "3000:3000"
+      - "3000:3000"                               # Grafana UI
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning  # Auto-configure datasources/dashboards
+      - grafana_data:/var/lib/grafana             # Persist dashboard changes
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin  # change in production
-      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_SECURITY_ADMIN_PASSWORD=admin          # Default password (change in production)
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel # Pie chart visualization
     networks:
       - jobqueue-network
     depends_on:
@@ -201,8 +238,8 @@ services:
 # ============================================
 volumes:
   postgres_data:                                  # Named volume for PostgreSQL persistence
-  prometheus_data:
-  grafana_data:
+  prometheus_data:                                # Prometheus time-series data
+  grafana_data:                                   # Grafana dashboards and settings
   # Data persists even after containers are removed
 
 # ============================================
