@@ -2,6 +2,7 @@ package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.config.JobConstants;
 import com.example.jobqueue.dist_job_processor.entity.JobEntity;
+import com.example.jobqueue.dist_job_processor.metrics.JobMetrics;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
@@ -29,6 +30,7 @@ public class ReconciliationService {
 
     private final JedisPool jedisPool;
     private final JobPersistenceService persistenceService;
+    private final JobMetrics jobMetrics;
 
     /**
      * Runs every x seconds
@@ -111,13 +113,36 @@ public class ReconciliationService {
                         jedis.hset(RedisKeys.jobKey(jobId), freshMetadata);
                         log.warn("RECON: Recreated corrupted metadata for job {}", jobId);
                         corruptedCount++;
+
+                        jobMetrics.getReconciliationCorrupted().increment();
                     }
 
                     // Push to queue if missing
                     if (!existsInQueue) {
+                        String redisStatus = metadata.get("status");
+                        String dbStatus = job.getStatus().name();
+
+                        // If Redis says COMPLETED but PostgreSQL says QUEUED/PROCESSING
+                        if ("COMPLETED".equals(redisStatus) && !"COMPLETED".equals(dbStatus)) {
+                            log.warn("RECON: Status mismatch - Job {} is COMPLETED in Redis but {} in DB. Fixing DB.",
+                                    jobId, dbStatus);
+
+                            // Update PostgreSQL to COMPLETED
+                            persistenceService.markCompleted(jobId);
+
+                            // Also clean up any lingering queue entries
+                            jedis.lrem(RedisKeys.JOB_QUEUE, 1, jobId);
+                            jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
+                            jedis.zrem(RedisKeys.RETRY_QUEUE, jobId);
+
+                            continue;  // Skip re-enqueue logic
+                        }
+                        
                         jedis.rpush(RedisKeys.JOB_QUEUE, jobId);
                         log.warn("RECON: Re-enqueued missing job {}", jobId);
                         reenqueuedCount++;
+
+                        jobMetrics.getReconciliationMissing().increment();
                     }
                 }
 

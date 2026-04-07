@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  external_labels:
+    environment: production
+
+scrape_configs:
+  - job_name: 'producer'
+    static_configs:
+      - targets: ['producer:8080']
+    metrics_path: '/actuator/prometheus'
+
+  - job_name: 'workers'
+    static_configs:
+      - targets: ['worker-1:8080', 'worker-2:8080']
+    metrics_path: '/actuator/prometheus'
+
+  - job_name: 'maintenance'
+    static_configs:
+      - targets: ['maintenance:8080']
+    metrics_path: '/actuator/prometheus'
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']

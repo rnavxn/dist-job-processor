@@ -1,6 +1,7 @@
 package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.config.JobConstants;
+import com.example.jobqueue.dist_job_processor.metrics.JobMetrics;
 import com.example.jobqueue.dist_job_processor.model.Job;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.model.JobType;
@@ -29,6 +30,7 @@ public class WorkerService {
     private final JedisPool jedisPool;
     private final RedisScriptManager scriptManager;
     private final JobPersistenceService persistenceService;
+    private final JobMetrics jobMetrics;
 
     @PostConstruct
     public void startWorkers() {
@@ -151,12 +153,23 @@ public class WorkerService {
             jedis.hset(RedisKeys.jobKey(jobId), "startedAt", String.valueOf(job.getStartedAt()));
 
             // ------- Task Execution -------
-            Thread.sleep(JobConstants.SIMULATED_TASK_DURATION_MS);
+            try {
+                jobMetrics.getJobProcessingTime().record(() -> {
+                    try {
+                        Thread.sleep(JobConstants.SIMULATED_TASK_DURATION_MS);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
 
-            // ------- A RANDOM FAILURE -------
-            // Let's say 20% of jobs fail randomly to test our logic
-            if (Math.random() < JobConstants.SIMULATED_FAILURE_RATE)
-                throw new RuntimeException("Simulated Network Error");
+                    // ------- A RANDOM FAILURE -------
+                    // Let's say 20% of jobs fail randomly to test our logic
+                    if (Math.random() < JobConstants.SIMULATED_FAILURE_RATE)
+                        throw new RuntimeException("Simulated Network Error");
+                });
+            } catch (Exception e) {
+                // rethrow so the outer catch handles failure logic
+                throw e;
+            }
 
             // ========== Mark COMPLETED in PostgreSQL ==========
             // Success path: job finished without errors
@@ -165,6 +178,8 @@ public class WorkerService {
             // Mark COMPLETED in Redis
             jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.COMPLETED.name());
             log.info("Finished: {}", job.getId());
+
+            jobMetrics.getJobsCompleted().increment();
 
             // ------- Remove from PROCESSING -------
             jedis.lrem(RedisKeys.PROCESSING_QUEUE, 1, jobId);
@@ -183,6 +198,8 @@ public class WorkerService {
             try (Jedis jedis = jedisPool.getResource()) {
                 RedisUtils.safeUnlock(jedis, lockKey, lockValue);
             }
+
+            jobMetrics.getJobsFailed().increment();
 
             handleFailure(jobId, e.getMessage());
         }
@@ -206,6 +223,9 @@ public class WorkerService {
                         List.of(RedisKeys.PROCESSING_QUEUE, RedisKeys.DEAD_LETTER_QUEUE),
                         List.of(jobId)
                 );
+
+                // Update metrics
+                jobMetrics.getJobsMovedToDlq().increment();
 
                 if ((Long) ob == 1L) {
                     log.error("Job {} failed 4 times. Moving to DLQ!", jobId);

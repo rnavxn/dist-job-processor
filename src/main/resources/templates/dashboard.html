@@ -13,9 +13,10 @@
 <body>
     <div class="card">
         <h2>Queue Monitoring</h2>
-        <div class="stat waiting">Waiting: <span th:text="${stats.waiting}">0</span></div>
-        <div class="stat processing">Processing: <span th:text="${stats.processing}">0</span></div>
+        <div class="stat waiting">Waiting Queue: <span th:text="${stats.waiting}">0</span></div>
+        <div class="stat processing">Processing Queue: <span th:text="${stats.processing}">0</span></div>
         <div class="stat failed">Failed (DLQ): <span th:text="${stats.failed}">0</span></div>
+        <div class="stat retry">Retry Queue: <span th:text="${stats.retry}">0</span></div>
     </div>
 </body>
 </html>

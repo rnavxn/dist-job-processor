@@ -1,6 +1,7 @@
 package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.config.JobConstants;
+import com.example.jobqueue.dist_job_processor.metrics.JobMetrics;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
@@ -24,6 +25,8 @@ public class ReaperService {
     private final JedisPool jedisPool;
     private final JobPersistenceService persistenceService;
     private final RedisScriptManager scriptManager;
+    private final JobMetrics jobMetrics;
+
 
     @Scheduled(fixedRate = JobConstants.REAPER_INTERVAL_MS)
     public void reclaimStuckJobs() {
@@ -100,6 +103,8 @@ public class ReaperService {
                                 log.error("CRITICAL: Failed to update PostgreSQL for recovered job {}: {}",
                                         jobId, e.getMessage());
                             }
+
+                            jobMetrics.getJobsRecovered().increment();
 
                             log.info("REAPER: Successfully returned job {} to waiting queue", jobId);
                         }

@@ -1,6 +1,7 @@
 package com.example.jobqueue.dist_job_processor.service;
 
 import com.example.jobqueue.dist_job_processor.config.JobConstants;
+import com.example.jobqueue.dist_job_processor.metrics.JobMetrics;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
 import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
@@ -23,6 +24,7 @@ public class RetryService {
     private final JedisPool jedisPool;
     private final RedisScriptManager scriptManager;
     private final JobPersistenceService persistenceService;
+    private final JobMetrics jobMetrics;
 
     @Scheduled(fixedRate = JobConstants.RETRY_SERVICE_INTERVAL_MS)
     public void processRetryQueue() {
@@ -52,6 +54,8 @@ public class RetryService {
                         List.of(RedisKeys.RETRY_QUEUE, RedisKeys.JOB_QUEUE),
                         List.of(jobId)
                 );
+
+                jobMetrics.getJobsRetried().increment();
 
                 if ((Long) ob == 1L) {
                     log.info("Scheduler picked job {}", jobId);
