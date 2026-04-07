@@ -169,7 +169,7 @@ Grafana dashboard available at `http://localhost:3000` (admin/admin).
 ## System Demo
 Check out the distributed queue in action (22s condensed view):
 
-https://github.com/rnavxn/dist-job-processor/tree/main/assets/demo/distributed_queue_workflow_demo.mp4
+https://github.com/user-attachments/assets/5aac0359-05ce-4080-bb65-35ce11eeb2af
 
 ### Dashboard Panels
 
