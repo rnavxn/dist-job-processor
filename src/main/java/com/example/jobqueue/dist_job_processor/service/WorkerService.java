@@ -156,7 +156,12 @@ public class WorkerService {
             try {
                 jobMetrics.getJobProcessingTime().record(() -> {
                     try {
-                        Thread.sleep(JobConstants.SIMULATED_TASK_DURATION_MS);
+                        // Replace Thread.sleep(JobConstants.SIMULATED_TASK_DURATION_MS);
+                        // With jittered sleep:
+                        long processingTime = JobConstants.SIMULATED_TASK_MIN_MS +
+                                (long)(Math.random() * (JobConstants.SIMULATED_TASK_MAX_MS - JobConstants.SIMULATED_TASK_MIN_MS));
+                        Thread.sleep(processingTime);
+
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     }
