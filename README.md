@@ -232,9 +232,6 @@ curl -s -X POST "http://localhost:8080/api/jobs/enqueue?type=EMAIL_SEND&payload=
 
 ## Limitations & Tradeoffs
 
-* **No idempotency guarantees**\
-  In failure scenarios (e.g., worker crash after execution but before DB update), jobs may be reprocessed.
-
 * **Basic crash recovery strategy**\
   Reaper scans the processing queue periodically instead of using heartbeat-based tracking.
 
@@ -245,7 +242,7 @@ curl -s -X POST "http://localhost:8080/api/jobs/enqueue?type=EMAIL_SEND&payload=
 * [x] Add reconciliation service for Redis/PostgreSQL consistency
 * [x] Add metrics and monitoring (Prometheus + Grafana)
 * [x] Optimize reaper with batching strategy
-* [ ] Introduce idempotency keys for safe reprocessing
+* [x] Introduce idempotency keys for safe reprocessing
 * [ ] Implement visibility timeout + heartbeat mechanism
 
 ---

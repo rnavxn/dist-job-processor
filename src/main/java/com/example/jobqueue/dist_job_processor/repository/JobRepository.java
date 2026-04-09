@@ -99,4 +99,17 @@ public interface JobRepository extends JpaRepository<JobEntity, String> {
      */
     @Query(value = "SELECT * FROM jobs WHERE status = 'QUEUED' ORDER BY created_at LIMIT :limit", nativeQuery = true)
     List<JobEntity> findQueuedJobs(@Param("limit") int limit);
+
+    /**
+     * Find a job by its idempotency key
+     * Used for: Preventing duplicate job submission when clients retry requests
+     *
+     * Idempotency keys allow clients to safely retry job submission without
+     * creating duplicate jobs. If a job with the same idempotency key already exists,
+     * the existing job is returned instead of creating a new one.
+     *
+     * @param idempotencyKey Unique key provided by client (e.g., UUID, request hash)
+     * @return Optional containing the existing job if found
+     */
+    Optional<JobEntity> findByIdempotencyKey(String idempotencyKey);
 }

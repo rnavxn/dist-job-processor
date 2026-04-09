@@ -26,8 +26,9 @@ public class JobConstants {
     public static final int RETRY_BATCH_SIZE = 50;
 
     // Worker configuration
-    public static final int WORKER_COUNT = 2;
-    public static final int SIMULATED_TASK_DURATION_MS = 2000;      // For testing
+    public static final int WORKER_COUNT = 3;
+    public static final int SIMULATED_TASK_MIN_MS = 500;            // 0.5 sec minimum
+    public static final int SIMULATED_TASK_MAX_MS = 4000;           // 4 sec maximum
     public static final double SIMULATED_FAILURE_RATE = 0.2;        // 20% for testing
 
     // Lock retry configuration

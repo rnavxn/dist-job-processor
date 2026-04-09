@@ -22,9 +22,12 @@ public class JobController {
     private final JobService jobService;
 
     @PostMapping("/enqueue")
-    public String createJob(@RequestParam JobType type, @RequestParam String payload) {
-        // Push it to Redis
-        return producerService.enqueue(type, payload);
+    public String createJob(
+            @RequestParam JobType type,
+            @RequestParam String payload,
+            @RequestParam(required = false) String idempotencyKey) {
+
+        return producerService.enqueue(type, payload, idempotencyKey);
     }
 
     @GetMapping("/{id}")
