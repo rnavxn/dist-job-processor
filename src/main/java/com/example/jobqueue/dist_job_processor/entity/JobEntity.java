@@ -26,6 +26,9 @@ public class JobEntity {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String payload;
 
+    @Column(name = "idempotency_key", unique = true, nullable = false)
+    private String idempotencyKey;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private JobStatus status;
@@ -49,11 +52,12 @@ public class JobEntity {
     private LocalDateTime updatedAt;
 
     // Convenience constructor from existing Job
-    public JobEntity(String id, JobType type, String payload, JobStatus status,
+    public JobEntity(String id, JobType type, String payload, String idempotencyKey, JobStatus status,
                      int attempts, long createdAt, Long startedAt) {
         this.id = id;
         this.type = type;
         this.payload = payload;
+        this.idempotencyKey = idempotencyKey;
         this.status = status;
         this.attempts = attempts;
         this.createdAt = createdAt;

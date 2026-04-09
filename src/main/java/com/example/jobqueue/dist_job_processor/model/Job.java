@@ -15,6 +15,7 @@ public class Job {
     private long createdAt;
     private Long startedAt;
     private int attempts = 0;
+    private String idempotencyKey;
 
     public Job(JobType type, String payload) {
         this.id = UUID.randomUUID().toString();
