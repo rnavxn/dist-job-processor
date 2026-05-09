@@ -1,5 +1,6 @@
 package com.example.jobqueue.dist_job_processor.service;
 
+import com.example.jobqueue.dist_job_processor.DTO.WebhookPayload;
 import com.example.jobqueue.dist_job_processor.config.JobConstants;
 import com.example.jobqueue.dist_job_processor.metrics.JobMetrics;
 import com.example.jobqueue.dist_job_processor.model.Job;
@@ -13,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.args.ListDirection;
@@ -31,10 +33,10 @@ public class WorkerService {
     private final RedisScriptManager scriptManager;
     private final JobPersistenceService persistenceService;
     private final JobMetrics jobMetrics;
+    private final RestTemplate restTemplate;
 
     @PostConstruct
     public void startWorkers() {
-
         int workerCount = JobConstants.WORKER_COUNT;
 
         for (int i = 0; i < workerCount; i++) {
@@ -139,6 +141,9 @@ public class WorkerService {
             job.setCreatedAt(Long.parseLong(jobData.get("createdAt")));
             job.setAttempts(Integer.parseInt(jobData.get("attempts")));
 
+            // Set CallbackUrl in worker-side job re-construction
+            job.setCallbackUrl(jobData.get("callbackUrl"));
+
             log.info("Thread {} starting Job: {}", Thread.currentThread().getName(), job.getId());
 
             // ========== Update PostgreSQL to PROCESSING ==========
@@ -155,21 +160,34 @@ public class WorkerService {
             // ------- Task Execution -------
             try {
                 jobMetrics.getJobProcessingTime().record(() -> {
-                    try {
-                        // Replace Thread.sleep(JobConstants.SIMULATED_TASK_DURATION_MS);
-                        // With jittered sleep:
-                        long processingTime = JobConstants.SIMULATED_TASK_MIN_MS +
-                                (long)(Math.random() * (JobConstants.SIMULATED_TASK_MAX_MS - JobConstants.SIMULATED_TASK_MIN_MS));
-                        Thread.sleep(processingTime);
+                    // NEW WEBHOOK LOGIC
+                    if (job.getCallbackUrl() != null && !job.getCallbackUrl().isBlank()) {
+                        log.info("Executing Webhook for Job {} to {}", job.getId(), job.getCallbackUrl());
 
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
+                        WebhookPayload requestBody = new WebhookPayload(jobId, job.getPayload());
+
+                        org.springframework.http.ResponseEntity<String> response =
+                                restTemplate.postForEntity(job.getCallbackUrl(), requestBody, String.class);
+
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new RuntimeException("Webhook failed with status: " + response.getStatusCode());
+                        }
+                    } else {
+                        // BACKWARD COMPATIBILITY: Simulated task if no webhook provided
+                        try {
+                            long processingTime = JobConstants.SIMULATED_TASK_MIN_MS +
+                                    (long)(Math.random() * (JobConstants.SIMULATED_TASK_MAX_MS - JobConstants.SIMULATED_TASK_MIN_MS));
+                            Thread.sleep(processingTime);
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+
+                        // ------- A RANDOM FAILURE -------
+                        // Let's say 20% of jobs fail randomly to test our logic
+                        if (Math.random() < JobConstants.SIMULATED_FAILURE_RATE) {
+                            throw new RuntimeException("Simulated Network Error");
+                        }
                     }
-
-                    // ------- A RANDOM FAILURE -------
-                    // Let's say 20% of jobs fail randomly to test our logic
-                    if (Math.random() < JobConstants.SIMULATED_FAILURE_RATE)
-                        throw new RuntimeException("Simulated Network Error");
                 });
             } catch (Exception e) {
                 // rethrow so the outer catch handles failure logic

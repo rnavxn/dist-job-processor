@@ -31,7 +31,7 @@ public class ProducerService {
     private final JobPersistenceService persistenceService;
     private final JobMetrics jobMetrics;
 
-    public String enqueue(JobType type, String payload, String idempotencyKey) {
+    public String enqueue(JobType type, String payload, String idempotencyKey, String callbackUrl) {
 
         // Generate key from payload hash if caller didn't provide one
         if (idempotencyKey == null) {
@@ -47,7 +47,7 @@ public class ProducerService {
         }
 
         // Create job object with generated ID and timestamps
-        Job job = new Job(type, payload);
+        Job job = new Job(type, payload, callbackUrl);
         job.setIdempotencyKey(idempotencyKey);
 
         // ========== STEP 1: Save to PostgreSQL ==========
@@ -81,6 +81,11 @@ public class ProducerService {
             jobData.put("createdAt", String.valueOf(job.getCreatedAt()));
             jobData.put("attempts", String.valueOf(job.getAttempts()));
             jobData.put("status", JobStatus.QUEUED.name());
+
+            // Store callbackUrl if it exists
+            if (job.getCallbackUrl() != null) {
+                jobData.put("callbackUrl", job.getCallbackUrl());
+            }
 
             // Persist job metadata
             jedis.hset(jobKey, jobData);

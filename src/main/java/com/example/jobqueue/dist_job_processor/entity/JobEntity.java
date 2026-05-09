@@ -29,6 +29,9 @@ public class JobEntity {
     @Column(name = "idempotency_key", unique = true, nullable = false)
     private String idempotencyKey;
 
+    @Column(name = "callback_url")
+    private String callbackUrl;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private JobStatus status;
@@ -52,12 +55,20 @@ public class JobEntity {
     private LocalDateTime updatedAt;
 
     // Convenience constructor from existing Job
-    public JobEntity(String id, JobType type, String payload, String idempotencyKey, JobStatus status,
-                     int attempts, long createdAt, Long startedAt) {
+    public JobEntity(String id,
+                     JobType type,
+                     String payload,
+                     String idempotencyKey,
+                     String callbackUrl,
+                     JobStatus status,
+                     int attempts,
+                     long createdAt,
+                     Long startedAt) {
         this.id = id;
         this.type = type;
         this.payload = payload;
         this.idempotencyKey = idempotencyKey;
+        this.callbackUrl = callbackUrl;
         this.status = status;
         this.attempts = attempts;
         this.createdAt = createdAt;

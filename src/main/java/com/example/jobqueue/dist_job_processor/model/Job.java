@@ -16,11 +16,13 @@ public class Job {
     private Long startedAt;
     private int attempts = 0;
     private String idempotencyKey;
+    private String callbackUrl;
 
-    public Job(JobType type, String payload) {
+    public Job(JobType type, String payload, String callbackUrl) {
         this.id = UUID.randomUUID().toString();
         this.type = type;
         this.payload = payload;
+        this.callbackUrl = callbackUrl;
         this.createdAt = System.currentTimeMillis();
         this.attempts = 0;
     }
