@@ -1,8 +1,8 @@
 package com.example.jobqueue.dist_job_processor.controller;
 
+import com.example.jobqueue.dist_job_processor.DTO.JobRequest;
 import com.example.jobqueue.dist_job_processor.DTO.JobResponse;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
-import com.example.jobqueue.dist_job_processor.model.JobType;
 import com.example.jobqueue.dist_job_processor.service.JobService;
 import com.example.jobqueue.dist_job_processor.service.ProducerService;
 import lombok.RequiredArgsConstructor;
@@ -22,12 +22,13 @@ public class JobController {
     private final JobService jobService;
 
     @PostMapping("/enqueue")
-    public String createJob(
-            @RequestParam JobType type,
-            @RequestParam String payload,
-            @RequestParam(required = false) String idempotencyKey) {
-
-        return producerService.enqueue(type, payload, idempotencyKey);
+    public String createJob(@RequestBody JobRequest request) {
+        return producerService.enqueue(
+                request.getType(),
+                request.getPayload(),
+                request.getIdempotencyKey(),
+                request.getCallbackUrl()
+        );
     }
 
     @GetMapping("/{id}")

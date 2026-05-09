@@ -46,6 +46,7 @@ public class JobPersistenceService {
                 job.getType(),
                 job.getPayload(),
                 job.getIdempotencyKey(),
+                job.getCallbackUrl(),
                 status,                 // ← This is QUEUED
                 job.getAttempts(),
                 job.getCreatedAt(),

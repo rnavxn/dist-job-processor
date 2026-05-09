@@ -16,4 +16,5 @@ public class JobResponse {
     private int attempts;
     private long createdAt;
     private Long startedAt;
+    private String callbackUrl; // NEW for WEBHOOK
 }

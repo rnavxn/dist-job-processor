@@ -3,17 +3,10 @@ package com.example.jobqueue.dist_job_processor.service;
 import com.example.jobqueue.dist_job_processor.DTO.JobResponse;
 import com.example.jobqueue.dist_job_processor.entity.JobEntity;
 import com.example.jobqueue.dist_job_processor.model.JobStatus;
-import com.example.jobqueue.dist_job_processor.model.JobType;
-import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -63,7 +56,8 @@ public class JobService {
                 entity.getStatus(),
                 entity.getAttempts(),
                 entity.getCreatedAt(),
-                entity.getStartedAt()
+                entity.getStartedAt(),
+                entity.getCallbackUrl()
         );
     }
 }
