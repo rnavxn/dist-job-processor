@@ -22,13 +22,14 @@ public class JobController {
     private final JobService jobService;
 
     @PostMapping("/enqueue")
-    public String createJob(@RequestBody JobRequest request) {
-        return producerService.enqueue(
+    public ResponseEntity<JobResponse> createJob(@RequestBody JobRequest request) {
+        JobResponse response =  producerService.enqueue(
                 request.getType(),
                 request.getPayload(),
                 request.getIdempotencyKey(),
                 request.getCallbackUrl()
         );
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{id}")

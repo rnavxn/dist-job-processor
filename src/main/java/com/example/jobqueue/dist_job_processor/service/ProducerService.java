@@ -1,5 +1,6 @@
 package com.example.jobqueue.dist_job_processor.service;
 
+import com.example.jobqueue.dist_job_processor.DTO.JobResponse;
 import com.example.jobqueue.dist_job_processor.entity.JobEntity;
 import com.example.jobqueue.dist_job_processor.metrics.JobMetrics;
 import com.example.jobqueue.dist_job_processor.model.Job;
@@ -31,7 +32,7 @@ public class ProducerService {
     private final JobPersistenceService persistenceService;
     private final JobMetrics jobMetrics;
 
-    public String enqueue(JobType type, String payload, String idempotencyKey, String callbackUrl) {
+    public JobResponse enqueue(JobType type, String payload, String idempotencyKey, String callbackUrl) {
 
         // Generate key from payload hash if caller didn't provide one
         if (idempotencyKey == null) {
@@ -43,7 +44,18 @@ public class ProducerService {
 
         if (existing.isPresent()) {
             log.info("Duplicate submission detected for key {}", idempotencyKey);
-            return "Job already exists: " + existing.get().getId();
+            JobEntity e = existing.get();
+            // Return existing job as JSON
+            return new JobResponse(
+                    e.getId(),
+                    e.getType(),
+                    e.getPayload(),
+                    e.getStatus(),
+                    e.getAttempts(),
+                    e.getCreatedAt(),
+                    e.getStartedAt(),
+                    e.getCallbackUrl()
+            );
         }
 
         // Create job object with generated ID and timestamps
@@ -59,10 +71,20 @@ public class ProducerService {
             // Two requests hit simultaneously with same key
             // DB unique constraint saved us — return existing job
             log.warn("Idempotency key collision for key {}", idempotencyKey);
-            return jobRepository.findByIdempotencyKey(idempotencyKey)
-                    .map(jobEntity -> "Job already exists: " + jobEntity.getId())
-                    .orElse("Duplicate rejected");
 
+            JobEntity existingEntity =  jobRepository.findByIdempotencyKey(idempotencyKey)
+                    .orElseThrow(() -> new RuntimeException("Duplicate rejected but job not found"));
+
+            return new JobResponse(
+                    existingEntity.getId(),
+                    existingEntity.getType(),
+                    existingEntity.getPayload(),
+                    existingEntity.getStatus(),
+                    existingEntity.getAttempts(),
+                    existingEntity.getCreatedAt(),
+                    existingEntity.getStartedAt(),
+                    existingEntity.getCallbackUrl()
+            );
         } catch (Exception e) {
             log.error("Failed to save job to PostgreSQL: {}", e.getMessage());
             throw new RuntimeException("Database unavailable", e);
@@ -105,7 +127,16 @@ public class ProducerService {
             throw new RuntimeException("Redis unavailable", e);
         }
 
-        return "Job " + job.getId() + " enqueued successfully!";
+        return new JobResponse(
+                job.getId(),
+                job.getType(),
+                job.getPayload(),
+                JobStatus.QUEUED,
+                job.getAttempts(),
+                job.getCreatedAt(),
+                job.getStartedAt(),
+                job.getCallbackUrl()
+        );
     }
 
     private String generateHash(JobType type, String payload) {

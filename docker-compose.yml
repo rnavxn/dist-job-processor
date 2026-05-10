@@ -103,6 +103,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    # Database password from .env
     networks:
       - jobqueue-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ============================================
   # Worker Service - Processes jobs from Redis queue
@@ -133,6 +135,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    # Database password from .env
     networks:
       - jobqueue-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # Instance 2
   worker-2:
@@ -160,6 +164,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    # Database password from .env
     networks:
       - jobqueue-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ============================================
   # Maintenance Service - Reaper & Reconciliation
@@ -190,6 +196,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    # Database password from .env
     networks:
       - jobqueue-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ============================================
   # Prometheus - Metrics collection and storage
