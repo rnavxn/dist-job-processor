@@ -1,18 +1,27 @@
 # Distributed Job Processing System
 
-![Java](https://img.shields.io/badge/Java-21%2B-blue)
-![Spring Boot](https://img.shields.io/badge/SpringBoot-4.x-brightgreen)
-![Redis](https://img.shields.io/badge/Redis-Queue-red)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Source_of_Truth-blue)
-![Docker](https://img.shields.io/badge/Docker-Containerized-blue)
-![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-orange)
-![Grafana](https://img.shields.io/badge/Grafana-Dashboard-yellow)
+![Java](https://img.shields.io/badge/Java-21-ED8B00?style=flat&logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-4-6DB33F?style=flat&logo=springboot&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat&logo=redis&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat&logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=flat&logo=prometheus&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-F46800?style=flat&logo=grafana&logoColor=white)
+
+---
+
+A production-ready distributed job processing system built with Spring Boot, Redis, and PostgreSQL.
+
+This system is designed to reliably process background tasks with support for automatic retries, crash recovery,
+dead-letter handling, and self-healing consistency. PostgreSQL acts as the source of truth, while Redis provides
+high-speed queue operations with automatic memory management. Real-time metrics are exposed via Micrometer and
+scraped by Prometheus, with a Grafana dashboard for live observability.
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
+- [Live System Telemetry](#live-system-telemetry)
 - [Architecture](#architecture)
 - [Service Separation](#service-separation)
 - [Redis Data Model](#redis-data-model)
@@ -23,16 +32,23 @@
 - [Getting Started](#getting-started)
 - [Limitations & Tradeoffs](#limitations--tradeoffs)
 - [Future Improvements](#future-improvements)
+
 ---
 
-## Overview
+## Live System Telemetry
+Check out the distributed queue in action (22s condensed view):
 
-A production-ready distributed job processing system built with Spring Boot, Redis, and PostgreSQL.
+https://github.com/user-attachments/assets/5aac0359-05ce-4080-bb65-35ce11eeb2af
 
-This system is designed to reliably process background tasks with support for automatic retries, crash recovery, 
-dead-letter handling, and self-healing consistency. PostgreSQL acts as the source of truth, while Redis provides 
-high-speed queue operations with automatic memory management. Real-time metrics are exposed via Micrometer and 
-scraped by Prometheus, with a Grafana dashboard for live observability.
+### Dashboard Panels
+
+| Category           | Key Metrics Monitored                 | What it tracks for the system                                                                      |
+|--------------------|---------------------------------------|----------------------------------------------------------------------------------------------------|
+| **Queue Depths**   | Main, Processing, Retry, DLQ          | Real-time bottleneck detection and load distribution across all job states.                        |
+| **Performance**    | Job Throughput, Processing Time       | Measures system capacity, execution latency, and worker efficiency.                                |
+| **Reliability**    | Success/Failure Ratio, DLQ Rate       | The overall health and error rates of the tasks being processed.                                   |
+| **Self-Healing**   | Recovery Activity, Consistency Issues | **Crucial:** Tracks the Reaper and Reconciliation services actively fixing stuck or orphaned jobs. |
+| **Infrastructure** | Service Health                        | Live up/down status of PostgreSQL, Redis, and all Worker/Producer containers.                      |
 
 ---
 
@@ -162,24 +178,6 @@ Custom metrics tracked via Micrometer and exported to Prometheus:
 | `job_processing_time_seconds`             | Timer   | Processing duration histogram                  |
 
 Grafana dashboard available at `http://localhost:3000` (admin/admin).
-
----
-## Live Dashboard
-
-## System Demo
-Check out the distributed queue in action (22s condensed view):
-
-https://github.com/user-attachments/assets/5aac0359-05ce-4080-bb65-35ce11eeb2af
-
-### Dashboard Panels
-
-| Category           | Key Metrics Monitored                 | What it tracks for the system                                                                      |
-|--------------------|---------------------------------------|----------------------------------------------------------------------------------------------------|
-| **Queue Depths**   | Main, Processing, Retry, DLQ          | Real-time bottleneck detection and load distribution across all job states.                        |
-| **Performance**    | Job Throughput, Processing Time       | Measures system capacity, execution latency, and worker efficiency.                                |
-| **Reliability**    | Success/Failure Ratio, DLQ Rate       | The overall health and error rates of the tasks being processed.                                   |
-| **Self-Healing**   | Recovery Activity, Consistency Issues | **Crucial:** Tracks the Reaper and Reconciliation services actively fixing stuck or orphaned jobs. |
-| **Infrastructure** | Service Health                        | Live up/down status of PostgreSQL, Redis, and all Worker/Producer containers.                      |
 
 ---
 
