@@ -43,6 +43,7 @@ services:
   postgres:
     image: postgres:16-alpine                    # Lightweight PostgreSQL 16 on Alpine Linux
     container_name: job-db                       # Fixed container name for easy reference
+    command: postgres -c max_connections=400
     ports:
       - "5433:5432"                              # Map host port 5433 to container port 5432 (avoids conflict with local Postgres)
     environment:
@@ -78,7 +79,6 @@ services:
   # ============================================
   producer:
     build: .                                      # Build from Dockerfile in current directory
-    container_name: producer
     ports:
       - "8080:8080"                               # Expose REST API on host port 8080
     depends_on:
@@ -109,39 +109,8 @@ services:
   # ============================================
   # Worker Service - Processes jobs from Redis queue
   # ============================================
-  # Instance 1
-  worker-1:
+  worker:
     build: .                                      # Same image as producer (different profile)
-    container_name: worker-1
-    depends_on:
-      postgres:
-        condition: service_healthy                # Wait for database before processing jobs
-      redis:
-        condition: service_healthy
-    environment:
-      # Spring Boot Configuration
-      - SPRING_PROFILES_ACTIVE=worker             # Activate worker profile
-
-      # Redis Configuration (for consuming jobs)
-      - REDIS_HOST=${REDIS_HOST}                  # Redis host from .env
-      - REDIS_PORT=${REDIS_PORT}                  # Redis port from .env
-      - REDIS_PASSWORD=${REDIS_PASSWORD}          # Redis password from .env
-
-      # PostgreSQL Configuration (for storing results)
-      - POSTGRES_HOST=postgres                    # Use service name for internal DNS
-      - POSTGRES_PORT=5432                        # Internal PostgreSQL port
-      - POSTGRES_DB=${POSTGRES_DB}                # Database name from .env
-      - POSTGRES_USER=${POSTGRES_USER}            # Database user from .env
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}    # Database password from .env
-    networks:
-      - jobqueue-network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  # Instance 2
-  worker-2:
-    build: .                                      # Same image as producer (different profile)
-    container_name: worker-2
     depends_on:
       postgres:
         condition: service_healthy                # Wait for database before processing jobs
@@ -173,7 +142,6 @@ services:
   # ============================================
   maintenance:
     build: .                                      # Same image as producer (different profile)
-    container_name: maintenance
     depends_on:
       postgres:
         condition: service_healthy                # Wait for database before processing jobs
