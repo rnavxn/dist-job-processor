@@ -6,19 +6,25 @@ global:
 
 scrape_configs:
   - job_name: 'producer'
-    static_configs:
-      - targets: ['producer:8080']
     metrics_path: '/actuator/prometheus'
+    dns_sd_configs:
+      - names: ['producer']
+        type: 'A'
+        port: 8080
 
-  - job_name: 'workers'
-    static_configs:
-      - targets: ['worker-1:8080', 'worker-2:8080']
+  - job_name: 'worker'
     metrics_path: '/actuator/prometheus'
+    dns_sd_configs:
+      - names: ['worker']
+        type: 'A'
+        port: 8080
 
   - job_name: 'maintenance'
-    static_configs:
-      - targets: ['maintenance:8080']
     metrics_path: '/actuator/prometheus'
+    dns_sd_configs:
+      - names: ['maintenance']
+        type: 'A'
+        port: 8080
 
   - job_name: 'redis'
     static_configs:
