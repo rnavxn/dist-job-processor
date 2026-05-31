@@ -13,6 +13,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import redis.clients.jedis.Jedis;
@@ -35,22 +36,23 @@ public class WorkerService {
     private final JobMetrics jobMetrics;
     private final RestTemplate restTemplate;
 
+    // Naming it "jobTaskExecutor" tells Spring to find the Bean with that exact name.
+    private final ThreadPoolTaskExecutor jobTaskExecutor;
+
     @PostConstruct
     public void startWorkers() {
         int workerCount = JobConstants.WORKER_COUNT;
 
         for (int i = 0; i < workerCount; i++) {
-            Thread worker = new Thread(this::workerLoop);
-            worker.setName("worker-" + i);
-            worker.start();
+            jobTaskExecutor.execute(this::workerLoop);
         }
 
-        log.info("Started {} blocking workers", workerCount);
+        log.info("Successfully handed off {} polling tasks to Spring ThreadPool", workerCount);
     }
 
 
     private void workerLoop() {
-        while (true) {
+        while (!Thread.currentThread().isInterrupted()) {
             try (Jedis jedis = jedisPool.getResource()) {
 
                 // ATOMIC MOVE: Take from JOB_QUEUE and put into PROCESSING_QUEUE
@@ -64,22 +66,31 @@ public class WorkerService {
                 );
 
                 if (jobId != null) {
-                    processTask(jobId);
+                    processTask(jobId, jedis);
                 }
 
+            } catch (redis.clients.jedis.exceptions.JedisConnectionException e) {
+                log.warn("Redis connection issue in polling loop, retrying in 2s...");
+                sleepSafely(2000);
             } catch (Exception e) {
-                log.error("Worker error: {}", e.getMessage());
+                // If the JVM is shutting down, gracefully break the loop
+                if (e.getCause() instanceof InterruptedException || e instanceof InterruptedException) {
+                    log.info("Worker thread interrupted, shutting down gracefully.");
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                log.error("Unexpected error in worker loop: {}", e.getMessage());
+                sleepSafely(1000); // Prevent tight-loop CPU burning on random errors
             }
         }
     }
 
-
-    private void processTask(String jobId) {
+    private void processTask(String jobId, Jedis jedis) {
 
         String lockKey = RedisKeys.lockKey(jobId);
         String lockValue = java.util.UUID.randomUUID().toString();
 
-        try (Jedis jedis = jedisPool.getResource()){
+        try {
 
             // -------- Initial status check --------
             String status = jedis.hget(RedisKeys.jobKey(jobId), "status");
@@ -218,20 +229,20 @@ public class WorkerService {
         } catch (Exception e) {
             log.error("Job {} failed: {}", jobId, e.getMessage());
 
-            try (Jedis jedis = jedisPool.getResource()) {
+//            try (Jedis jedis = jedisPool.getResource()) {
                 RedisUtils.safeUnlock(jedis, lockKey, lockValue);
-            }
+//            }
 
             jobMetrics.getJobsFailed().increment();
 
-            handleFailure(jobId, e.getMessage());
+            handleFailure(jobId, e.getMessage(), jedis);
         }
     }
 
 
-    private void handleFailure(String jobId, String errorMessage) {
+    private void handleFailure(String jobId, String errorMessage, Jedis jedis) {
 
-        try (Jedis jedis = jedisPool.getResource()) {
+        try {
             // increment attempts counter in Redis
             long attempts = jedis.hincrBy(RedisKeys.jobKey(jobId), "attempts", 1);
 
@@ -287,4 +298,12 @@ public class WorkerService {
         }
     }
 
+
+    private void sleepSafely(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 }
