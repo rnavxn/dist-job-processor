@@ -78,7 +78,10 @@ services:
   # Producer Service - Handles API requests and job creation
   # ============================================
   producer:
-    build: .                                      # Build from Dockerfile in current directory
+    build:                                        # Build from Dockerfile in current directory
+      context: .
+#      dockerfile: Dockerfile.dev                  # For local development
+      dockerfile: Dockerfile
     ports:
       - "8080:8080"                               # Expose REST API on host port 8080
     depends_on:
@@ -110,7 +113,10 @@ services:
   # Worker Service - Processes jobs from Redis queue
   # ============================================
   worker:
-    build: .                                      # Same image as producer (different profile)
+    build:                                        # Build from Dockerfile in current directory
+      context: .
+#      dockerfile: Dockerfile.dev                  # For local development
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy                # Wait for database before processing jobs
@@ -141,7 +147,10 @@ services:
   # Handles crash recovery and consistency checks
   # ============================================
   maintenance:
-    build: .                                      # Same image as producer (different profile)
+    build:                                        # Build from Dockerfile in current directory
+      context: .
+#      dockerfile: Dockerfile.dev                  # For local development
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy                # Wait for database before processing jobs
