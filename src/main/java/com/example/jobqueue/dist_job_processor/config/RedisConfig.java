@@ -24,8 +24,8 @@ public class RedisConfig {
     @Bean
     public JedisPool jedisPool() {
         JedisPoolConfig poolConfig = new JedisPoolConfig();
-        poolConfig.setMaxTotal(20);
-        poolConfig.setMinIdle(5);
+        poolConfig.setMaxTotal(200); // Defined plenty of rooms (50 threads = 50 connections)
+        poolConfig.setMaxIdle(50);
 
         int timeout = 2000;
 
