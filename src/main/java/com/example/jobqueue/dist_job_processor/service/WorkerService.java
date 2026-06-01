@@ -10,9 +10,11 @@ import com.example.jobqueue.dist_job_processor.redis.RedisKeys;
 import com.example.jobqueue.dist_job_processor.redis.RedisScriptManager;
 import com.example.jobqueue.dist_job_processor.redis.RedisUtils;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -22,6 +24,7 @@ import redis.clients.jedis.args.ListDirection;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 
 @Profile("worker")
@@ -39,6 +42,8 @@ public class WorkerService {
     // Naming it "jobTaskExecutor" tells Spring to find the Bean with that exact name.
     private final ThreadPoolTaskExecutor jobTaskExecutor;
 
+    private final String workerId = UUID.randomUUID().toString();
+
     @PostConstruct
     public void startWorkers() {
         int workerCount = JobConstants.WORKER_COUNT;
@@ -48,6 +53,25 @@ public class WorkerService {
         }
 
         log.info("Successfully handed off {} polling tasks to Spring ThreadPool", workerCount);
+    }
+
+    // Pings Redis every 5 seconds. If the container dies, the key vanishes in 15 seconds.
+    @Scheduled(fixedRate = 5000)
+    public void sendHeartbeat() {
+        try (Jedis jedis = jedisPool.getResource()) {
+            jedis.setex(RedisKeys.workerHeartbeatKey(workerId), 15, "ALIVE");
+        } catch (Exception e) {
+            log.warn("Failed to send heartbeat for worker {}: {}", workerId, e.getMessage());
+        }
+    }
+
+    // Clean up instantly if the container shuts down gracefully
+    @PreDestroy
+    public void cleanupHeartbeat() {
+        try (Jedis jedis = jedisPool.getResource()) {
+            jedis.del(RedisKeys.workerHeartbeatKey(workerId));
+            log.info("Worker {} shutting down, heartbeat removed.", workerId);
+        }
     }
 
 
@@ -167,6 +191,9 @@ public class WorkerService {
             job.setStartedAt(startedAt);
             jedis.hset(RedisKeys.jobKey(jobId), "status", JobStatus.PROCESSING.name());
             jedis.hset(RedisKeys.jobKey(jobId), "startedAt", String.valueOf(job.getStartedAt()));
+
+            // Stamp the job with this container's unique ID
+            jedis.hset(RedisKeys.jobKey(jobId), "workerId", workerId);
 
             // ------- Task Execution -------
             try {

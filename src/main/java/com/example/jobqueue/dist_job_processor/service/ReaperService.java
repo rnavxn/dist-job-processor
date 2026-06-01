@@ -46,30 +46,41 @@ public class ReaperService {
                         continue;
                     }
 
-                    Long startedAt = jobData.get("startedAt") != null
-                            ? Long.parseLong(jobData.get("startedAt"))
-                            : null;
-
-                    long createdAt = Long.parseLong(jobData.get("createdAt"));
-
                     // ========== Check if job is stuck ==========
                     boolean isStuck = false;
                     String stuckReason = null;
 
-                    // Case 1: Job started but running too long
-                    if (startedAt != null) {
-                        long runningTime = now - startedAt;
-                        if (runningTime > JobConstants.STUCK_JOB_TIMEOUT_MS) {
+                    String workerId = jobData.get("workerId");
+
+                    if (workerId != null && !workerId.isBlank()) {
+                        // THE ENTERPRISE HEARTBEAT CHECK
+                        // Ask Redis if this specific worker container is still alive
+                        boolean isAlive = jedis.exists(RedisKeys.workerHeartbeatKey(workerId));
+
+                        if (!isAlive) {
                             isStuck = true;
-                            stuckReason = "Running for " + (runningTime / 1000) + " seconds";
+                            stuckReason = "Worker [" + workerId + "] heartbeat lost. Container presumed dead.";
                         }
-                    }
-                    // Case 2: Job never started, in queue too long
-                    else {
-                        long waitingTime = now - createdAt;
-                        if (waitingTime > JobConstants.QUEUE_STUCK_TIMEOUT_MS) {
-                            isStuck = true;
-                            stuckReason = "Never started, waiting for " + (waitingTime / 1000) + " seconds";
+                    } else {
+                        // BACKWARD COMPATIBILITY: Fallback to time-based guessing for old jobs
+                        Long startedAt = jobData.get("startedAt") != null
+                                ? Long.parseLong(jobData.get("startedAt"))
+                                : null;
+
+                        long createdAt = Long.parseLong(jobData.get("createdAt"));
+
+                        if (startedAt != null) {
+                            long runningTime = now - startedAt;
+                            if (runningTime > JobConstants.STUCK_JOB_TIMEOUT_MS) {
+                                isStuck = true;
+                                stuckReason = "Legacy timeout: Running for " + (runningTime / 1000) + " seconds";
+                            }
+                        } else {
+                            long waitingTime = now - createdAt;
+                            if (waitingTime > JobConstants.QUEUE_STUCK_TIMEOUT_MS) {
+                                isStuck = true;
+                                stuckReason = "Never started, waiting for " + (waitingTime / 1000) + " seconds";
+                            }
                         }
                     }
 
