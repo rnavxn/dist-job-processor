@@ -16,4 +16,8 @@ public class RedisKeys {
     public static String lockKey(String jobId) {
         return JOB_PREFIX + jobId + ":lock";
     }
+
+    public static String workerHeartbeatKey(String workerId) {
+        return "worker:heartbeat:" + workerId;
+    }
 }
