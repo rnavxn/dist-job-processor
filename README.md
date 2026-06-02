@@ -80,15 +80,15 @@ flowchart LR
 
 ## Service Separation
 
-| Service             | Profile       | Container          | Purpose                                          |
-|---------------------|---------------|--------------------|--------------------------------------------------|
-| Producer            | `producer`    | producer           | REST API, job enqueue                            |
-| Worker              | `worker`      | worker-1, worker-2 | Job processing, retry scheduling                 |
-| Maintenance         | `maintenance` | maintenance        | Crash recovery, consistency checks               |
-| Prometheus          | -             | prometheus         | Metrics scraping from all services               |
-| Grafana             | -             | grafana            | Live dashboard — queue depth, throughput, health |
-| Redis Exporter      | -             | redis-exporter     | Exposes Redis metrics                            |
-| PostgreSQL Exporter | -             | postgres-exporter  | Exposes database metrics                         |
+| Service             | Profile       | Container         | Purpose                                          |
+|---------------------|---------------|-------------------|--------------------------------------------------|
+| Producer            | `producer`    | producer          | REST API, job enqueue                            |
+| Worker              | `worker`      | worker            | Job processing, retry scheduling                 |
+| Maintenance         | `maintenance` | maintenance       | Crash recovery, consistency checks               |
+| Prometheus          | -             | prometheus        | Metrics scraping from all services               |
+| Grafana             | -             | grafana           | Live dashboard — queue depth, throughput, health |
+| Redis Exporter      | -             | redis-exporter    | Exposes Redis metrics                            |
+| PostgreSQL Exporter | -             | postgres-exporter | Exposes database metrics                         |
 
 ---
 
@@ -132,8 +132,8 @@ flowchart LR
 - **Dead Letter Queue (DLQ)**\
   Jobs exceeding retry limits (4 attempts) are moved to DLQ for manual inspection.
 
-- **Crash Recovery (Reaper)**\
-  Detects and reclaims jobs stuck in processing due to worker crashes (15s interval).
+- **Deterministic Crash Recovery**\
+  Workers maintain a TTL heartbeat in Redis. If a container  suffers a catastrophic failure (OOM, power loss), the Reaper detects the missing heartbeat and instantly reclaims the orphaned job, safely ignoring legitimate long-running tasks.
 
 - **Lock Conflict Handling**\
   When multiple workers compete for the same job, losers are moved to retry queue with jitter (2-5s) instead of dropping.
@@ -196,7 +196,7 @@ Grafana dashboard available at `http://localhost:3000` (admin/admin).
 
 ### Prerequisites
 
-* Java 21+
+* Java 21
 * Maven
 * Docker & Docker Compose
 
@@ -230,18 +230,18 @@ curl -s -X POST "http://localhost:8080/api/jobs/enqueue?type=EMAIL_SEND&payload=
 
 ## Limitations & Tradeoffs
 
-* **Basic crash recovery strategy**\
-  Reaper scans the processing queue periodically instead of using heartbeat-based tracking.
+* **Heartbeat Network Overhead**\
+  Active workers ping Redis every 5s. At massive scale (1,000+ containers), this generates continuous background network traffic.
+* **Dual-Write Complexity**\
+  Maintaining PostgreSQL as the source-of-truth alongside a Redis queue requires complex background reconciliation to prevent state drift.
 
 ---
 
 ## Future Improvements
 
-* [x] Add reconciliation service for Redis/PostgreSQL consistency
-* [x] Add metrics and monitoring (Prometheus + Grafana)
-* [x] Optimize reaper with batching strategy
-* [x] Introduce idempotency keys for safe reprocessing
-* [ ] Implement visibility timeout + heartbeat mechanism
+* [ ] Kubernetes Helm chart deployment configuration
+* [ ] Managed cloud database integration guides (AWS RDS, ElastiCache)
+* [ ] JWT Authentication for the Producer API
 
 ---
 
