@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.DigestUtils;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
@@ -32,6 +33,7 @@ public class ProducerService {
     private final JobPersistenceService persistenceService;
     private final JobMetrics jobMetrics;
 
+    @Transactional
     public JobResponse enqueue(JobType type, String payload, String idempotencyKey, String callbackUrl) {
 
         // Generate key from payload hash if caller didn't provide one
@@ -121,8 +123,9 @@ public class ProducerService {
             jobMetrics.getJobsEnqueued().increment();
 
         } catch (Exception e) {
-            // NOTE: If Redis fails, PostgreSQL already has the job. Reconciliation service will add job later
-            log.error("Failed to enqueue job to Redis after DB save: {}", e.getMessage());
+            // NOTE: If Redis fails, the @Transactional annotation will roll back the PostgreSQL save.
+            // This prevents data drift between the database and the queue.
+            log.error("Failed to enqueue job to Redis. Rolling back PostgreSQL save: {}", e.getMessage());
 
             throw new RuntimeException("Redis unavailable", e);
         }
