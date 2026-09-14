@@ -14,7 +14,6 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.DigestUtils;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
@@ -36,9 +35,9 @@ public class ProducerService {
     @Transactional
     public JobResponse enqueue(JobType type, String payload, String idempotencyKey, String callbackUrl) {
 
-        // Generate key from payload hash if caller didn't provide one
+        // If caller didn't provide one, generate a random UUID so every request is unique
         if (idempotencyKey == null) {
-            idempotencyKey = generateHash(type, payload);
+            idempotencyKey = java.util.UUID.randomUUID().toString();
         }
 
         // Check if job with this key already exists
@@ -140,10 +139,5 @@ public class ProducerService {
                 job.getStartedAt(),
                 job.getCallbackUrl()
         );
-    }
-
-    private String generateHash(JobType type, String payload) {
-        String input = type.name() + ":" + payload;
-        return DigestUtils.md5DigestAsHex(input.getBytes());
     }
 }
