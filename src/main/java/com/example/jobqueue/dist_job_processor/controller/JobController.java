@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.util.List;
 
@@ -22,7 +23,7 @@ public class JobController {
     private final JobService jobService;
 
     @PostMapping("/enqueue")
-    public ResponseEntity<JobResponse> createJob(@RequestBody JobRequest request) {
+    public ResponseEntity<JobResponse> createJob(@Valid @RequestBody JobRequest request) {
         JobResponse response =  producerService.enqueue(
                 request.getType(),
                 request.getPayload(),
