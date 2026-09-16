@@ -15,7 +15,7 @@ public class RedisConfig {
     @Value("${redis.port}")
     private int port;
 
-    @Value("${redis.password}")
+    @Value("${redis.password:}")
     private String password;
 
     @Value("${redis.ssl:false}")
@@ -28,7 +28,10 @@ public class RedisConfig {
         poolConfig.setMaxIdle(50);
 
         int timeout = 2000;
+        
+        // Jedis fails authentication if password is an empty string instead of null
+        String actualPassword = (password == null || password.trim().isEmpty() || password.contains("${REDIS_PASSWORD}")) ? null : password;
 
-        return new JedisPool(poolConfig, host, port, timeout, password, useSsl);
+        return new JedisPool(poolConfig, host, port, timeout, actualPassword, useSsl);
     }
 }
